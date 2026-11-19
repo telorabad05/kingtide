@@ -1,47 +1,59 @@
-# KINGTIDE — open-world crime game
+# KINGTIDE
 
-A Three.js open-world crime game set in **Solmarina**, an original sun-soaked coastal city split into three districts: **Oceanfront Downtown**, **Harbor Industrial**, and **Hillcrest Island**. Two full story campaigns, a living police force, and an arsenal you have to *earn* — weapons are never given, only **bought from a dealer or found hidden in the city**.
+A Three.js open-world crime game in **Solmarina**, an original 3-zone coastal city —
+Oceanfront Downtown, Harbor Industrial, and Hillcrest Island, joined by bridges.
 
-## Play
+**▶ Play it: https://telorabad05.github.io/kingtide/game/**
 
-Open `game/index.html` through any static server — or play it on GitHub Pages:
-**https://telorabad05.github.io/kingtide/game/**
+## One story, 17 chapters
 
-## Two stories, one city
-
-- **Cerita Dario** (10 chapters) — Dario Venn rises from broke newcomer to king wheelman: marina errands, a street-racing rival, a harbor heist gone hot, and a betrayal finale under a pinned 5-star wanted level.
-- **KINGTIDE: DUO — Val & Rafa** (7 chapters) — Valeria "Val" Cruz walks out of prison after taking the fall for her old crew; Rafael "Rafa" Duarte is waiting at the gate. A crime-duo campaign of scores, ambushes and betrayal, with the lead switching between the two — including mid-mission.
+A single continuous campaign: Dario Venn's rise through the harbor crews (chapters 1–10)
+flows into Val & Rafa's run (chapters 11–17) — one wallet, one arsenal, leads switching
+as the story demands. It ends with a **step-by-step bank heist**: a planning talk with
+your partner at the safehouse, the drive over, taking the lobby with six hostages held
+hands-up, your partner drilling the vault while you keep control, three cash bags, and
+a five-star escape to the marina.
 
 ## Features
 
-- **Combat**: 5 weapons (Pistol, Wasp SMG, Shotgun, Assault Rifle, RPG) with mags, reserve ammo, reloads and a GTA-style **weapon wheel (hold Q, slow motion)**. Buy them — plus ammo and armour — from **Marco**, the arms dealer in a Harbor Industrial back alley, or find 3 hidden pickups (pier, Dome, lighthouse).
-- **Police that hunt like GTA**: officers get out of their cars and chase you on foot, dynamic roadblocks deploy ahead of your escape route, a helicopter joins sustained chases — and can be shot down, or will leave when the heat dies. Break line of sight and the **SEARCH system** takes over: a search zone pulses on the minimap while units sweep it. Stay hidden and you walk free.
-- **A living city**: 3 distinct zones joined by bridges, a signature beach with umbrellas, lifeguard towers and strolling sunbathers, lane-graph traffic, 8 stealable car models, pedestrians who chat, stroll and flee.
-- **Driving**: nitro (Shift), synthesized radio with 3 stations, car damage with smoking wrecks, a buyable safehouse with a garage.
-- **REP system**: earn reputation for chapters, escapes and feats — climb from Newcomer to Harbor King.
-- Full save system in localStorage: story progress, garage, weapons, ammo, armour and REP all persist.
+- **Weapons you earn**: a baseball bat from the first minute; pistols, an SMG, a shotgun,
+  an assault rifle and an RPG are *found* in the world or *bought* from Marco, the dealer
+  in the Harbor Industrial back alley — plus armour, ammo, and a GTA-style weapon wheel (Q)
+- **Police with a memory**: foot officers who leave their cars to chase you down, dynamic
+  roadblocks, a shootable helicopter, and a GTA-style search zone — break line of sight
+  and hide until the trail goes cold
+- **A phone (T)**: missions with a live objective checklist, story text messages,
+  contacts, and your stats
+- **A full map (M)** drawn from the same layout as the minimap, with places of interest
+  and your current objective
+- **Settings**: graphics quality (Rendah/Sedang/Tinggi), master/music/effects volume,
+  mouse sensitivity — saved between sessions
+- Cars with nitro and a 3-station synthesized radio, REP ranks from Newcomer to Harbor
+  King, a save system, and wanted rules with witnesses: crime only counts when somebody
+  actually sees it
 
 ## Controls
 
-- **WASD / arrows** — move & drive · **Mouse** — camera / aim
-- **Left click** — fire (when armed) / shove · **R** — reload (on foot) / radio (in a car)
-- **Hold Q** — weapon wheel · **1–5 / Tab / scroll** — switch weapon
-- **Shift** — sprint (on foot) / nitro (in a car) · **Space** — handbrake
-- **E** — enter / exit car · **F** — talk / start mission / Marco's shop · **Esc / P** — pause
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move & drive |
+| Mouse | Camera / aim · Left click — swing bat, shove, or fire |
+| Shift | Sprint · Nitro in a car |
+| Space | **Jump** on foot · Handbrake in a car |
+| E | Enter / exit car |
+| F | Talk · Start mission · Marco's shop · Advance dialogue |
+| Q (hold) | Weapon wheel · 1–5 / Tab / scroll — switch weapon |
+| R | Reload · Radio in a car |
+| T | Phone |
+| M | Full map |
+| H | Horn |
+| Esc / P | Pause (settings inside) |
 
-## Run locally
+## Tech
 
-```sh
-npx tsx serve.ts   # or any static file server pointed at the repo root
-```
+One static page: Three.js + vanilla JS modules, procedural textures, synthesized
+WebAudio (engine, sirens, gunfire, radio) — no build step, no assets to download.
+The whole game is under 1 MB.
 
-Then open the served `game/` page. Fully self-contained (Three.js is vendored under `game/vendor/three/`), no network requests.
-
-## Layout
-
-- `game/` — the playable game (static, no build step)
-- `screenshots/` — captures from the final build
-- `main.ts` — entrypoint/handover from the original competition build (Vice Harbor, make.fun gta6-01)
-- `serve.ts` — tiny static server with ETag revalidation
-
-MIT licensed — see `LICENSE`.
+`screenshots/` holds live captures: a 5-star chase, the bank lobby mid-heist with the
+objective checklist, Val on the beach, and the Chapter 11 story banner.
