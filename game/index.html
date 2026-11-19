@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vice Harbor — an open-world crime game</title>
+<title>KINGTIDE — an open-world crime game</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1b26; font-family: Georgia, 'Times New Roman', serif; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -18,6 +18,93 @@
   }
   #cash.bump { animation: cashBump .45s ease; }
   @keyframes cashBump { 30% { transform: scale(1.22); } }
+  /* ---------- PLUS HUD ---------- */
+  #rep {
+    position: absolute; top: 54px; left: 20px; color: #ffd97a; font-size: 16.5px; letter-spacing: 1px;
+    text-shadow: 0 1px 5px rgba(0,0,0,.8);
+  }
+  #leadName {
+    position: absolute; top: 80px; left: 20px; color: #bff3ff; font-size: 14px; letter-spacing: 2.5px;
+    text-shadow: 0 1px 5px rgba(0,0,0,.8);
+  }
+  #weaponInfo {
+    position: absolute; right: 22px; bottom: 118px; text-align: right; color: #ffe9a8; font-size: 21px; font-weight: bold;
+    letter-spacing: 1px; text-shadow: 0 2px 6px rgba(0,0,0,.75); opacity: 0; transition: opacity .2s;
+  }
+  #weaponInfo.show { opacity: 1; }
+  #weaponInfo .wsub { display: block; font-size: 13px; font-weight: normal; color: #bff3ff; letter-spacing: 2px; }
+  #armourWrap {
+    position: absolute; right: 22px; bottom: 52px; width: 150px; opacity: 0; transition: opacity .25s; text-align: right;
+  }
+  #armourWrap.show { opacity: 1; }
+  #armourWrap .lbl { color: #a8d8ff; font-size: 12.5px; letter-spacing: 2px; text-shadow: 0 1px 4px #000; }
+  #armourBar { height: 8px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; }
+  #armourFill { height: 100%; width: 0%; background: #53b7ff; }
+  #carName { font-size: 17px; color: #bff3ff; letter-spacing: 2px; text-shadow: 0 1px 5px rgba(0,0,0,.8); }
+  #nitroBar { width: 150px; height: 7px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; margin-top: 5px; margin-left: auto; }
+  #nitroFill { height: 100%; width: 100%; background: #53b7ff; }
+  #nitroLbl { font-size: 11.5px; color: #a8d8ff; letter-spacing: 2px; margin-top: 3px; }
+  #toast {
+    position: absolute; bottom: 232px; left: 50%; transform: translateX(-50%); color: #ffe9a8; font-size: 19px; letter-spacing: 1px;
+    background: rgba(10,22,34,.66); padding: 6px 20px; border-radius: 6px; opacity: 0; transition: opacity .3s; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+  #searchWrap {
+    position: absolute; top: 58px; right: 20px; width: 170px; text-align: right; opacity: 0; transition: opacity .25s;
+  }
+  #searchWrap.show { opacity: 1; }
+  #searchWrap .lbl { color: #ffb454; font-size: 15px; letter-spacing: 3px; text-shadow: 0 1px 5px #000; animation: searchPulse 1s infinite; }
+  @keyframes searchPulse { 50% { opacity: .45; } }
+  #searchBar { height: 7px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,180,84,.5); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  #searchFill { height: 100%; width: 100%; background: #ffb454; }
+  #stars.searching span.on { animation: starBlink .7s infinite; }
+  @keyframes starBlink { 50% { opacity: .25; } }
+  #zoneLabel {
+    position: absolute; left: 18px; bottom: 214px; color: #dceef7; font-size: 13.5px; letter-spacing: 2px;
+    text-shadow: 0 1px 5px rgba(0,0,0,.85); background: rgba(10,22,34,.45); padding: 2px 9px; border-radius: 4px;
+  }
+  /* ---------- weapon wheel ---------- */
+  #wheel { position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0; transition: opacity .15s; }
+  #wheel.open { opacity: 1; }
+  #wheelSlots { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  .wslot {
+    position: absolute; width: 104px; height: 64px; border-radius: 10px; text-align: center;
+    background: rgba(10,22,34,.72); border: 2px solid rgba(191,243,255,.35); color: #eaf6ff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .wslot .wname { font-size: 15.5px; font-weight: bold; letter-spacing: 1px; }
+  .wslot .wammo { font-size: 13px; color: #ffd97a; margin-top: 2px; }
+  .wslot.locked { opacity: .38; }
+  .wslot.sel { border-color: #2fe8c8; background: rgba(14,44,54,.88); box-shadow: 0 0 22px rgba(47,232,200,.45); }
+  .wslot.current .wname { color: #2fe8c8; }
+  #wheelCenter {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190px; text-align: center;
+    color: #fff; background: rgba(10,22,34,.78); border: 2px solid rgba(47,232,200,.5); border-radius: 50%;
+    height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  #wheelCenter .wc-name { font-size: 23px; font-weight: bold; letter-spacing: 2px; color: #ffe9a8; }
+  #wheelCenter .wc-sub { font-size: 13px; letter-spacing: 3px; color: #bff3ff; margin-top: 3px; }
+  #wheelCenter .wc-ammo { font-size: 17px; color: #ffd97a; margin-top: 6px; }
+  #wheelCenter .wc-ammo.locked { color: #ff9a8a; font-size: 12.5px; padding: 0 18px; }
+  /* ---------- Marco's shop ---------- */
+  #shopMenu { background: rgba(6,16,26,.8); display: none; }
+  #shopMenu.open { display: flex; }
+  #shopMenu h1 { font-size: 38px; letter-spacing: 3px; color: #ffe9a8; margin: 0 0 4px; }
+  #shopMenu .shopSub { color: #bff3ff; font-size: 15.5px; margin-bottom: 14px; letter-spacing: 1px; }
+  #shopItems { width: min(560px, 92vw); max-height: 56vh; overflow-y: auto; pointer-events: auto; }
+  .shopRow {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(16,34,47,.85); border: 1px solid #3f7ea6; border-radius: 7px; padding: 9px 14px; margin: 6px 0; text-align: left;
+  }
+  .shopRow .nm { color: #ffe9a8; font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+  .shopRow .ds { color: #dceef7; font-size: 13.5px; }
+  .shopRow .buy {
+    pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 15.5px; color: #10222f;
+    background: linear-gradient(180deg, #ffd97a, #ffb347); border: none; border-radius: 6px; padding: 7px 16px; white-space: nowrap;
+  }
+  .shopRow .buy:disabled { filter: grayscale(.7); opacity: .55; cursor: default; }
+  .shopRow .buy.ammo { background: linear-gradient(180deg, #9fe8ff, #53b7ff); }
+  #shopMsg { color: #ff9a8a; font-size: 16px; min-height: 22px; margin-top: 8px; }
   #stars { position: absolute; top: 14px; right: 20px; font-size: 30px; letter-spacing: 3px; }
   #stars span { color: rgba(255,255,255,.22); text-shadow: 0 2px 5px rgba(0,0,0,.5); }
   #stars span.on { color: #ffc93c; }
@@ -112,33 +199,45 @@
 </script>
 </head>
 <body>
-<canvas id="game" aria-label="Vice Harbor: an open-world crime game in the coastal city of Solmarina"></canvas>
+<canvas id="game" aria-label="KINGTIDE: an open-world crime game in the coastal city of Solmarina"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 
 <div id="hud">
   <div id="cash">$250</div>
+  <div id="rep">REP 0 · Newcomer</div>
+  <div id="leadName">DARIO VENN</div>
   <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+  <div id="searchWrap"><div class="lbl">👁 DICARI</div><div id="searchBar"><div id="searchFill"></div></div></div>
   <div id="banner"><span id="bannerTitle"></span><div id="bannerSub"></div></div>
   <div id="objective"></div>
   <div id="prompt"></div>
+  <div id="toast"></div>
   <div id="bustWrap"><div class="lbl">BUSTED</div><div id="bustBar"><div id="bustFill"></div></div></div>
+  <div id="zoneLabel">Oceanfront Downtown</div>
   <canvas id="minimap" width="190" height="190"></canvas>
-  <div id="driveInfo"><span id="speedVal">0</span><span class="unit">km/h</span><div id="carHealthBar"><div id="carHealthFill"></div></div></div>
+  <div id="driveInfo"><div id="carName"></div><span id="speedVal">0</span><span class="unit">km/h</span><div id="carHealthBar"><div id="carHealthFill"></div></div><div id="nitroBar"><div id="nitroFill"></div></div><div id="nitroLbl">NITRO — SHIFT</div></div>
   <div id="healthWrap"><div class="lbl">HEALTH</div><div id="healthBar"><div id="healthFill"></div></div></div>
+  <div id="armourWrap"><div class="lbl">ARMOUR</div><div id="armourBar"><div id="armourFill"></div></div></div>
+  <div id="weaponInfo"></div>
   <div id="bigText"></div>
 </div>
 
+<div id="wheel"><div id="wheelSlots"></div><div id="wheelCenter"></div></div>
+
 <div id="startScreen" class="screen">
-  <h1>VICE HARBOR</h1>
+  <h1>KINGTIDE</h1>
   <h2>S O L M A R I N A</h2>
-  <p style="color:#dceef7; letter-spacing:1px; margin:0 0 14px;">A 10-chapter story: from broke newcomer to king wheelman.</p>
-  <button id="newGameBtn" class="btn">New Game</button>
+  <p style="color:#dceef7; letter-spacing:1px; margin:0 0 14px;">Two stories, one city. Dario's rise — and Val &amp; Rafa's run.</p>
+  <button id="newGameBtn" class="btn">▶ KINGTIDE — Cerita Dario</button>
+  <button id="duoBtn" class="btn">▶ KINGTIDE: DUO — Val &amp; Rafa</button>
   <button id="continueBtn" class="btn ghost" style="display:none">Continue</button>
   <div id="controls">
-    <b>WASD / arrows</b> — move &amp; drive &nbsp;•&nbsp; <b>Mouse</b> — camera<br>
-    <b>Shift</b> — sprint &nbsp;•&nbsp; <b>Space</b> — handbrake &nbsp;•&nbsp; <b>H</b> — horn<br>
-    <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / interact<br>
-    <b>Esc / P</b> — pause &nbsp;•&nbsp; <b>Left click</b> — shove
+    <b>WASD / arrows</b> — move &amp; drive &nbsp;•&nbsp; <b>Mouse</b> — camera / aim<br>
+    <b>Shift</b> — sprint · <b>nitro</b> in a car &nbsp;•&nbsp; <b>Space</b> — handbrake &nbsp;•&nbsp; <b>H</b> — horn<br>
+    <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / Marco's shop<br>
+    <b>Left click</b> — shove · <b>fire</b> when armed &nbsp;•&nbsp; <b>R</b> — reload · <b>radio</b> in a car<br>
+    <b>1–5 / Tab / wheel</b> — switch weapon &nbsp;•&nbsp; <b>Hold Q</b> — weapon wheel<br>
+    <b>Esc / P</b> — pause &nbsp;•&nbsp; Weapons are <b>found</b> in the world or <b>bought</b> from Marco — never given
   </div>
 </div>
 
@@ -148,6 +247,14 @@
   <label for="daySlider">Time of day</label>
   <input id="daySlider" type="range" min="0" max="100" value="32">
   <button id="restartBtn" class="btn ghost">Restart — new game</button>
+</div>
+
+<div id="shopMenu" class="screen">
+  <h1>MARCO · SENJATA</h1>
+  <div class="shopSub">Gang belakang gudang, Harbor Industrial — "Cash only. No names." · <span id="shopCash"></span></div>
+  <div id="shopItems"></div>
+  <div id="shopMsg"></div>
+  <button id="shopCloseBtn" class="btn ghost">Tutup (Esc)</button>
 </div>
 
 <script type="module" src="./src/main.js"></script>
