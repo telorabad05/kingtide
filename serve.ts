@@ -1,9 +1,8 @@
-// A tiny static server for game/, so Vice Harbor can be played locally:
-//   node serve.ts [--port 8080] [--host 127.0.0.1]   then open http://localhost:8080
-// Standard library only; refuses paths outside game/. HTML is served no-store
-// so a fresh build is never masked by a stale cached page during development.
-// Everything else carries an ETag (v3.1): a returning browser revalidates with
-// If-None-Match and gets a 304 instead of re-downloading the three.js build.
+// Vice Harbor — local development server (Node 22+, standard library only).
+// Serves game/ at http://localhost:8080 so the entry can be played without a
+// build step: `node serve.ts [--port 8080]`. Paths are jailed to game/, MIME
+// types cover what a browser game ships, and ETags let the browser revalidate
+// instead of re-downloading the vendored three.js on every reload.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -11,50 +10,69 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
-const hostIndex = args.indexOf('--host');
-const host = hostIndex === -1 ? '127.0.0.1' : String(args[hostIndex + 1]);
+const portAt = args.indexOf('--port');
+const wanted = portAt === -1 ? 8080 : Number(args[portAt + 1]);
+const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
 
 const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.png': 'image/png',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
-  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((request, response) => {
+createServer((req, res) => {
+  let pathname;
   try {
-    const url = new URL(request.url, 'http://localhost');
-    const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
-    const file = join(root, rel === '/' || rel === '.' ? 'index.html' : rel);
-    if (!file.startsWith(root + sep) && file !== root) { response.writeHead(403); return response.end('forbidden'); }
-    const stat = statSync(file);
-    if (stat.isDirectory()) return serveFile(join(file, 'index.html'), response, request);   // a folder serves its index page
-    if (!stat.isFile()) { response.writeHead(404); return response.end('not found'); }
-    return serveFile(file, response, request);
+    pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
   } catch {
-    response.writeHead(404); response.end('not found');
+    res.writeHead(400).end('bad request');
+    return;
   }
-}).listen(port, host, () => console.log(`Vice Harbor at http://${host}:${port}`));
-
-function serveFile(file, response, request) {
-  const stat = statSync(file);
-  if (!stat.isFile()) { response.writeHead(404); return response.end('not found'); }
-  const type = MIME[extname(file)] || 'application/octet-stream';
-  const isHtml = type.startsWith('text/html');
-  const etag = `"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
-  if (!isHtml && request.headers['if-none-match'] === etag) {
-    response.writeHead(304, { ETag: etag, 'Cache-Control': 'public, max-age=3600' });
-    return response.end();
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const file = resolve(join(root, normalize(pathname)));
+  if (file !== root && !file.startsWith(root + sep)) {
+    res.writeHead(403).end('forbidden');
+    return;
   }
-  response.writeHead(200, {
-    'Content-Type': type, 'Content-Length': stat.size,
-    'Cache-Control': isHtml ? 'no-store' : 'public, max-age=3600',
-    ETag: etag, 'Last-Modified': stat.mtime.toUTCString(),
+  let stats;
+  try {
+    stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+  } catch {
+    res.writeHead(404).end('not found');
+    return;
+  }
+  // ETag revalidation: size + mtime is plenty for a dev server
+  const etag = `"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, { etag }).end();
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': stats.size,
+    etag,
+    'cache-control': 'no-cache',
   });
-  if (request.method === 'HEAD') return response.end();
-  createReadStream(file).pipe(response);
-}
+  if (req.method === 'HEAD') { res.end(); return; }
+  createReadStream(file).pipe(res);
+}).listen(port, '127.0.0.1', () => {
+  console.log(`Vice Harbor dev server: http://localhost:${port}`);
+});
