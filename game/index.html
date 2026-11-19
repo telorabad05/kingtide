@@ -3,123 +3,153 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌴</text></svg>">
-<title>Vice Harbor — an open-world crime game in Solmarina</title>
+<title>Vice Harbor — an open-world crime game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #10131c; font-family: "Segoe UI", Verdana, sans-serif; }
-  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
-  .panel { background: rgba(10, 12, 22, 0.55); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 10px; backdrop-filter: blur(2px); }
-  #stats { position: absolute; top: 14px; left: 14px; padding: 10px 14px; min-width: 168px; }
-  #cash { font-size: 26px; font-weight: 800; color: #7be495; letter-spacing: 0.5px; text-shadow: 0 2px 6px rgba(0,0,0,0.6); transform-origin: left center; }
-  #cash.bump { animation: cashbump 0.38s ease-out; }
-  @keyframes cashbump { 0% { transform: scale(1.3); color: #ffe27a; } 100% { transform: scale(1); } }
-  #healthWrap { margin-top: 6px; height: 9px; background: rgba(255,255,255,0.18); border-radius: 5px; overflow: hidden; }
-  #health { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5e57, #ffb020); transition: width 0.2s; }
-  #stars { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 30px; letter-spacing: 6px; color: #ffd23e; text-shadow: 0 0 10px rgba(255, 170, 0, 0.8), 0 2px 4px rgba(0,0,0,0.7); }
-  #stars .off { color: rgba(255,255,255,0.22); text-shadow: none; }
-  #stars.cooling { animation: blink 0.7s steps(2) infinite; }
-  #stars.flash { animation: starflash 0.45s ease-out; }
-  @keyframes starflash { 0% { transform: translateX(-50%) scale(1.5); filter: brightness(2.2); } 100% { transform: translateX(-50%) scale(1); } }
-  #stars.hot { animation: hotpulse 0.55s ease-in-out infinite; color: #ff4040; text-shadow: 0 0 14px rgba(255, 40, 40, 0.95), 0 2px 4px rgba(0,0,0,0.7); }
-  @keyframes blink { 50% { opacity: 0.35; } }
-  @keyframes hotpulse { 50% { transform: translateX(-50%) scale(1.14); } }
-  #mapBox { position: absolute; top: 14px; right: 14px; padding: 6px; text-align: center; }
-  #minimap { display: block; width: 218px; height: 218px; border-radius: 6px; }
-  #mapLabel { font-size: 11px; letter-spacing: 3px; color: #ffd9a0; margin-top: 4px; }
-  #objective { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); padding: 8px 18px; font-size: 17px; font-weight: 600; text-align: center; display: none; }
-  #objective small { display: block; font-size: 13px; color: #ffd9a0; font-weight: 500; }
-  #prompt { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); padding: 8px 16px; font-size: 16px; display: none; }
-  #prompt b { color: #ffd23e; }
-  #toast { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 800; letter-spacing: 1px; color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,0.75); opacity: 0; transition: opacity 0.3s; text-align: center; }
-  #speedo { position: absolute; right: 18px; bottom: 16px; padding: 8px 16px; text-align: right; display: none; }
-  #speed { font-size: 34px; font-weight: 800; }
-  #speedo small { display: block; color: #cfd8dc; font-size: 12px; letter-spacing: 1px; }
-  #vehicleName { color: #ffd9a0 !important; font-size: 13px !important; }
-  #damage { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 0, 0, 0.45) 100%); opacity: 0; transition: opacity 0.15s; }
-  #lowHealth { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 52%, rgba(190, 0, 0, 0.55) 100%); opacity: 0; }
-  #lowHealth.on { animation: lowhp 1.15s ease-in-out infinite; }
-  @keyframes lowhp { 0%, 100% { opacity: 0.12; } 50% { opacity: 0.6; } }
-  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: linear-gradient(180deg, rgba(24, 10, 34, 0.82), rgba(8, 20, 38, 0.88)); z-index: 5; }
-  #titleScreen { background: linear-gradient(180deg, rgba(24, 10, 34, 0.55), rgba(8, 20, 38, 0.42) 55%, rgba(8, 12, 24, 0.78)); cursor: pointer; }
-  #titleScreen .hint { font-size: 15px; letter-spacing: 3px; color: #ffd9a0; animation: blink 1.6s steps(2) infinite; }
-  #pauseScreen { display: none; background: rgba(8, 10, 20, 0.72); }
-  #pauseScreen h1 { font-size: 44px; }
-  #pauseScreen label { font-size: 14px; letter-spacing: 2px; color: #ffd9a0; }
-  #brightSlider { pointer-events: auto; width: 260px; accent-color: #ffb020; margin: 8px 0 4px; }
-  .screen h1 { font-family: Georgia, serif; font-size: 64px; margin: 0; letter-spacing: 2px; background: linear-gradient(90deg, #ff5e78, #ffb020, #22e6c8); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
-  .screen h2 { font-weight: 500; color: #ffd9a0; margin: 6px 0 14px; letter-spacing: 4px; }
-  .screen p { max-width: 560px; line-height: 1.5; color: #e8ecf1; padding: 0 20px; }
-  .screen .controls { font-size: 14px; color: #b9c6d2; line-height: 1.9; }
-  .screen button { pointer-events: auto; margin: 10px 6px 0; padding: 12px 30px; font-size: 18px; font-weight: 700; color: #10131c; background: linear-gradient(90deg, #ffb020, #ff5e78); border: 0; border-radius: 24px; cursor: pointer; }
-  .screen button:hover { filter: brightness(1.12); }
-  #endScreen { display: none; background: rgba(10, 4, 8, 0.78); }
-  #endTitle { font-size: 58px; letter-spacing: 6px; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1b26; font-family: Georgia, 'Times New Roman', serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s; z-index: 5; }
+  #hud.on { opacity: 1; }
+  #cash {
+    position: absolute; top: 16px; left: 20px; color: #7dffb0; font-size: 30px; font-weight: bold;
+    text-shadow: 0 2px 6px rgba(0,0,0,.65); letter-spacing: .5px;
+  }
+  #cash.bump { animation: cashBump .45s ease; }
+  @keyframes cashBump { 30% { transform: scale(1.22); } }
+  #stars { position: absolute; top: 14px; right: 20px; font-size: 30px; letter-spacing: 3px; }
+  #stars span { color: rgba(255,255,255,.22); text-shadow: 0 2px 5px rgba(0,0,0,.5); }
+  #stars span.on { color: #ffc93c; }
+  #stars span.flash { animation: starFlash .8s ease; }
+  @keyframes starFlash { 0% { transform: scale(2.1); } 100% { transform: scale(1); } }
+  #banner {
+    position: absolute; top: 64px; left: 50%; transform: translateX(-50%) translateY(-8px); text-align: center;
+    opacity: 0; transition: opacity .3s, transform .3s; max-width: 82vw;
+  }
+  #banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #bannerTitle {
+    display: inline-block; color: #ffe9a8; font-size: 30px; font-weight: bold; letter-spacing: 1px;
+    text-shadow: 0 2px 10px rgba(0,0,0,.8); background: rgba(10,22,34,.55); padding: 6px 22px; border-radius: 6px;
+  }
+  #bannerSub { color: #eaf6ff; font-size: 16.5px; margin-top: 7px; text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+  #objective {
+    position: absolute; top: 138px; left: 50%; transform: translateX(-50%); color: #bff3ff; font-size: 16px;
+    background: rgba(10,22,34,.5); padding: 4px 14px; border-radius: 12px; opacity: 0; transition: opacity .3s; white-space: nowrap;
+  }
+  #objective.show { opacity: 1; }
+  #prompt {
+    position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 18px;
+    background: rgba(10,22,34,.68); padding: 7px 18px; border-radius: 6px; opacity: 0; transition: opacity .2s; white-space: nowrap;
+  }
+  #prompt.show { opacity: 1; }
+  #prompt b { color: #ffc93c; }
+  #bustWrap {
+    position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); width: 300px; text-align: center;
+    opacity: 0; transition: opacity .2s;
+  }
+  #bustWrap.show { opacity: 1; }
+  #bustWrap .lbl { color: #ff5e5e; font-size: 14px; letter-spacing: 4px; text-shadow: 0 1px 5px #000; }
+  #bustBar { height: 9px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.4); border-radius: 5px; overflow: hidden; }
+  #bustFill { height: 100%; width: 0%; background: linear-gradient(90deg, #f7b731, #e84118); }
+  #minimap {
+    position: absolute; left: 18px; bottom: 18px; width: 190px; height: 190px; border-radius: 8px;
+    border: 2px solid rgba(255,255,255,.35); box-shadow: 0 4px 18px rgba(0,0,0,.5);
+  }
+  #driveInfo {
+    position: absolute; right: 22px; bottom: 20px; text-align: right; color: #fff; opacity: 0; transition: opacity .25s;
+  }
+  #driveInfo.show { opacity: 1; }
+  #speedVal { font-size: 46px; font-weight: bold; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+  #driveInfo .unit { font-size: 15px; color: #cfe8ef; margin-left: 4px; }
+  #carHealthBar { width: 150px; height: 8px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; margin-top: 5px; margin-left: auto; }
+  #carHealthFill { height: 100%; width: 100%; background: #39d353; }
+  #healthWrap {
+    position: absolute; right: 22px; bottom: 20px; width: 150px; opacity: 0; transition: opacity .25s; text-align: right;
+  }
+  #healthWrap.show { opacity: 1; }
+  #healthWrap .lbl { color: #ffb3b3; font-size: 12.5px; letter-spacing: 2px; text-shadow: 0 1px 4px #000; }
+  #healthBar { height: 8px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; }
+  #healthFill { height: 100%; width: 100%; background: #e84118; }
+  #bigText {
+    position: absolute; top: 34%; left: 50%; transform: translateX(-50%) scale(.8); font-size: 84px; font-weight: bold;
+    letter-spacing: 10px; opacity: 0; text-shadow: 0 4px 30px rgba(0,0,0,.85); pointer-events: none;
+  }
+  #bigText.show { animation: bigIn 2.6s ease forwards; }
+  @keyframes bigIn { 0% { opacity: 0; transform: translateX(-50%) scale(.8); } 12% { opacity: 1; transform: translateX(-50%) scale(1); } 78% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ---------- screens ---------- */
+  .screen {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 10; text-align: center; color: #fff;
+  }
+  #startScreen { background: linear-gradient(180deg, rgba(9,26,43,.25) 0%, rgba(9,26,43,.78) 78%); }
+  #startScreen h1 {
+    font-size: 86px; margin: 0; letter-spacing: 6px; color: #ffe9a8;
+    text-shadow: 0 0 34px rgba(255,150,60,.55), 0 4px 0 #b5502f, 0 8px 26px rgba(0,0,0,.7);
+  }
+  #startScreen h2 { font-size: 21px; font-weight: normal; letter-spacing: 5px; color: #bff3ff; margin: 4px 0 26px; }
+  .btn {
+    pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 21px; letter-spacing: 1px;
+    color: #10222f; background: linear-gradient(180deg, #ffd97a, #ffb347); border: none; border-radius: 7px;
+    padding: 12px 42px; margin: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: rgba(16,34,47,.75); color: #bff3ff; border: 1px solid #3f7ea6; }
+  #controls {
+    margin-top: 30px; color: #dceef7; font-size: 15.5px; line-height: 1.65; background: rgba(9,26,43,.55);
+    padding: 12px 26px; border-radius: 8px;
+  }
+  #controls b { color: #ffc93c; }
+  #pauseMenu { background: rgba(6,16,26,.72); display: none; }
+  #pauseMenu.open { display: flex; }
+  #pauseMenu h1 { font-size: 44px; letter-spacing: 4px; color: #ffe9a8; margin: 0 0 18px; }
+  #pauseMenu label { color: #bff3ff; font-size: 16px; letter-spacing: 1px; }
+  #daySlider { width: 260px; margin: 10px 0 22px; accent-color: #ffb347; }
 </style>
-</head>
-<body>
-<canvas id="scene" aria-label="Vice Harbor: explore Solmarina on foot and by car"></canvas>
-
-<div id="hud">
-  <div id="stats" class="panel">
-    <div id="cash">$0</div>
-    <div id="healthWrap"><div id="health"></div></div>
-  </div>
-  <div id="stars" aria-label="Wanted level"></div>
-  <div id="mapBox" class="panel">
-    <canvas id="minimap" width="218" height="218"></canvas>
-    <div id="mapLabel">SOLMARINA</div>
-  </div>
-  <div id="objective" class="panel"></div>
-  <div id="prompt" class="panel"></div>
-  <div id="toast"></div>
-  <div id="speedo" class="panel"><span id="speed">0</span> <small>KM/H</small><small id="vehicleName"></small></div>
-</div>
-<div id="damage"></div>
-<div id="lowHealth"></div>
-
-<div id="titleScreen" class="screen">
-  <h1>VICE HARBOR</h1>
-  <h2>S O L M A R I N A</h2>
-  <p id="storyText"></p>
-  <p class="hint">— CLICK ANYWHERE TO START —</p>
-  <div>
-    <button id="newGameBtn">New Game</button>
-    <button id="continueBtn">Continue</button>
-  </div>
-  <p class="controls">
-    WASD / arrows — move &amp; drive &nbsp;•&nbsp; Mouse — camera (click the game to capture it)<br>
-    Shift — sprint &nbsp;•&nbsp; Space — handbrake &nbsp;•&nbsp; E — enter / exit car &nbsp;•&nbsp; F — talk / start mission / safehouse<br>
-    H — horn &nbsp;•&nbsp; Esc / P — pause &nbsp;•&nbsp; Left click — shove<br>
-    Steal cars, run missions, race Rico, and mind the stars: at five, Harbor PD sends the helicopter.<br>
-    Wreck a car and its engine dies for good. Earn $2,500 and the lot safehouse is yours — respawn at home, garage your car there.
-  </p>
-</div>
-
-<div id="pauseScreen" class="screen">
-  <h1>PAUSED</h1>
-  <h2>S O L M A R I N A &nbsp;H O L D S &nbsp;I T S &nbsp;B R E A T H</h2>
-  <div>
-    <button id="resumeBtn">Resume</button>
-    <button id="respawnBtn2">Back on the street</button>
-  </div>
-  <p><label for="brightSlider">DAYLIGHT</label><br>
-  <input id="brightSlider" type="range" min="30" max="130" value="100" step="1"><br>
-  <span class="controls">Slide from a grey dawn to the full Solmarina glare.</span></p>
-  <p class="controls">Esc / P — resume &nbsp;•&nbsp; Your cash and missions are saved as you play.</p>
-</div>
-
-<div id="endScreen" class="screen">
-  <h1 id="endTitle">BUSTED</h1>
-  <p id="endText"></p>
-  <div><button id="respawnBtn">Back on the street</button></div>
-</div>
-
-<p id="status" role="status" aria-live="polite"></p>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.min.js" } }
 </script>
+</head>
+<body>
+<canvas id="game" aria-label="Vice Harbor: an open-world crime game in the coastal city of Solmarina"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="cash">$250</div>
+  <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+  <div id="banner"><span id="bannerTitle"></span><div id="bannerSub"></div></div>
+  <div id="objective"></div>
+  <div id="prompt"></div>
+  <div id="bustWrap"><div class="lbl">BUSTED</div><div id="bustBar"><div id="bustFill"></div></div></div>
+  <canvas id="minimap" width="190" height="190"></canvas>
+  <div id="driveInfo"><span id="speedVal">0</span><span class="unit">km/h</span><div id="carHealthBar"><div id="carHealthFill"></div></div></div>
+  <div id="healthWrap"><div class="lbl">HEALTH</div><div id="healthBar"><div id="healthFill"></div></div></div>
+  <div id="bigText"></div>
+</div>
+
+<div id="startScreen" class="screen">
+  <h1>VICE HARBOR</h1>
+  <h2>S O L M A R I N A</h2>
+  <p style="color:#dceef7; letter-spacing:1px; margin:0 0 14px;">A 10-chapter story: from broke newcomer to king wheelman.</p>
+  <button id="newGameBtn" class="btn">New Game</button>
+  <button id="continueBtn" class="btn ghost" style="display:none">Continue</button>
+  <div id="controls">
+    <b>WASD / arrows</b> — move &amp; drive &nbsp;•&nbsp; <b>Mouse</b> — camera<br>
+    <b>Shift</b> — sprint &nbsp;•&nbsp; <b>Space</b> — handbrake &nbsp;•&nbsp; <b>H</b> — horn<br>
+    <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / interact<br>
+    <b>Esc / P</b> — pause &nbsp;•&nbsp; <b>Left click</b> — shove
+  </div>
+</div>
+
+<div id="pauseMenu" class="screen">
+  <h1>PAUSED</h1>
+  <button id="resumeBtn" class="btn">Resume</button>
+  <label for="daySlider">Time of day</label>
+  <input id="daySlider" type="range" min="0" max="100" value="32">
+  <button id="restartBtn" class="btn ghost">Restart — new game</button>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
