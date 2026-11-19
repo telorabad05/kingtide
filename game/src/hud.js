@@ -1,169 +1,145 @@
-// The HUD: cash, health, wanted stars, objective banner, prompts, toasts, the
-// speedometer — and the minimap, a top-down canvas plot of Solmarina with the
-// player, traffic, police and the mission target on it. The target marker wears
-// its mission's icon (chequered flag for the race, a crate for a delivery, a
-// diamond for the drops, a ring for checkpoints), unclaimed mission starts glow
-// gold, four-plus stars flash hot, and low health breathes a red vignette.
-// v3.1 readability: the cash readout pops whenever the number actually moves,
-// a fresh wanted star lands with a flash, and the marina's cruising boats are
-// plotted on the water so the quay reads as a working harbour.
+// HUD: all DOM overlay — cash with a pop on change, wanted stars that flash
+// when a new one lands, mission banners + objective line, contextual prompts,
+// the bust meter, speed/health readouts, BUSTED/WASTED splashes — and the
+// canvas minimap (static city pre-rendered once, actors drawn per frame).
 import { CITY } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
-export class Hud {
+export class HUD {
   constructor() {
-    this.cashEl = $('cash'); this.healthEl = $('health'); this.starsEl = $('stars');
-    this.objectiveEl = $('objective'); this.promptEl = $('prompt'); this.toastEl = $('toast');
-    this.speedoEl = $('speedo'); this.speedEl = $('speed'); this.vehicleEl = $('vehicleName');
-    this.damageEl = $('damage'); this.lowHealthEl = $('lowHealth');
-    this.mapCtx = $('minimap').getContext('2d');
-    this.toastTimer = 0;
-    this.lastStars = -1;
+    this.cashEl = $('cash');
+    this.starsEl = $('stars');
+    this.bannerEl = $('banner');
+    this.bannerTitle = $('bannerTitle');
+    this.bannerSub = $('bannerSub');
+    this.objectiveEl = $('objective');
+    this.promptEl = $('prompt');
+    this.bustWrap = $('bustWrap');
+    this.bustFill = $('bustFill');
+    this.driveEl = $('driveInfo');
+    this.speedEl = $('speedVal');
+    this.carHealthFill = $('carHealthFill');
+    this.healthWrap = $('healthWrap');
+    this.healthFill = $('healthFill');
+    this.bigEl = $('bigText');
+    this.map = $('minimap').getContext('2d');
     this.lastCash = null;
+    this.lastStars = 0;
+    this.bannerTimer = 0;
+    this.staticMap = this.prerenderMap();
   }
-  setCash(n) {
-    const v = Math.round(n);
-    this.cashEl.textContent = '$' + v.toLocaleString('en-US');
-    if (this.lastCash !== null && v !== this.lastCash) {
-      // money moved: pop the readout (CSS animation in index.html) so a fare,
-      // a fine or a mission purse registers without reading the digits
-      this.cashEl.classList.remove('bump');
-      void this.cashEl.offsetWidth;   // restart the animation even mid-pop
-      this.cashEl.classList.add('bump');
-    }
-    this.lastCash = v;
-  }
-  setHealth(frac) {
-    const f = Math.max(0, Math.min(1, frac));
-    this.healthEl.style.width = `${f * 100}%`;
-    if (this.lowHealthEl) this.lowHealthEl.classList.toggle('on', f < 0.3 && f > 0);
-  }
-  setStars(n, cooling) {
-    this.starsEl.classList.toggle('hot', n >= 4);   // four-plus stars pulse red-hot every frame check
-    if (n === this.lastStars && cooling === this.lastCooling) return;
-    if (this.lastStars >= 0 && n > this.lastStars) {
-      // a fresh star lands with a flash (v3.1): trouble should feel like it arrives
-      this.starsEl.classList.remove('flash');
-      void this.starsEl.offsetWidth;
-      this.starsEl.classList.add('flash');
-    }
-    this.lastStars = n; this.lastCooling = cooling;
-    let html = '';
-    for (let i = 0; i < 5; i++) html += i < n ? '★' : '<span class="off">★</span>';
-    this.starsEl.innerHTML = html;
-    this.starsEl.classList.toggle('cooling', !!cooling);
-  }
-  showObjective(title, sub) {
-    this.objectiveEl.style.display = 'block';
-    this.objectiveEl.innerHTML = `${title}<small>${sub}</small>`;
-  }
-  hideObjective() { this.objectiveEl.style.display = 'none'; }
-  prompt(html) {
-    if (html) { this.promptEl.style.display = 'block'; this.promptEl.innerHTML = html; }
-    else this.promptEl.style.display = 'none';
-  }
-  toast(text, ms = 2200) {
-    this.toastEl.textContent = text;
-    this.toastEl.style.opacity = '1';
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => { this.toastEl.style.opacity = '0'; }, ms);
-  }
-  setSpeed(kmh, vehicleName) {
-    if (kmh === null) { this.speedoEl.style.display = 'none'; return; }
-    this.speedoEl.style.display = 'block';
-    this.speedEl.textContent = String(Math.round(kmh));
-    this.vehicleEl.textContent = vehicleName || '';
-  }
-  flashDamage(strength = 1) {
-    this.damageEl.style.opacity = String(Math.min(1, strength));
-    setTimeout(() => { this.damageEl.style.opacity = '0'; }, 130);
-  }
-  /** A mission marker wearing its kind: ring, crate, chequered flag or diamond. */
-  drawMissionIcon(g, x, z, kind, pulse) {
-    g.save(); g.translate(x, z);
-    if (kind === 'race') {
-      const s = 3.4;
-      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
-        g.fillStyle = (i + j) % 2 ? '#10131c' : '#ffffff';
-        g.fillRect(-s + i * s, -s + j * s, s, s);
-      }
-      g.strokeStyle = '#ffc93e'; g.lineWidth = 1.6; g.strokeRect(-s - 1.5, -s - 1.5, s * 2 + 3, s * 2 + 3);
-    } else if (kind === 'delivery') {
-      g.fillStyle = '#ffb020'; g.fillRect(-4.4, -4.4, 8.8, 8.8);
-      g.strokeStyle = '#10131c'; g.lineWidth = 1.6; g.strokeRect(-4.4, -4.4, 8.8, 8.8);
-      g.beginPath(); g.moveTo(-4.4, 0); g.lineTo(4.4, 0); g.moveTo(0, -4.4); g.lineTo(0, 4.4); g.stroke();
-    } else if (kind === 'drops') {
-      g.fillStyle = '#2ee6a8';
-      g.beginPath(); g.moveTo(0, -6); g.lineTo(4.6, 0); g.lineTo(0, 6); g.lineTo(-4.6, 0); g.closePath(); g.fill();
-      g.strokeStyle = '#10131c'; g.lineWidth = 1.2; g.stroke();
-    } else {
-      g.fillStyle = '#ffc93e';
-      g.beginPath(); g.arc(0, 0, pulse + 2.5, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#10131c';
-      g.beginPath(); g.arc(0, 0, 2.2, 0, Math.PI * 2); g.fill();
-    }
-    g.restore();
-  }
-  /** state: {px, pz, heading, traffic:[], cops:[], target:{x,z,kind}|null, starts:[{x,z,kind}], rival:{x,z}|null, safehouse:{x,z,owned}|null, boats:[{x,z}]} */
-  drawMinimap(state) {
-    const g = this.mapCtx, S = 218;
-    const mx = (x) => ((x + 268) / 536) * S;
-    const mz = (z) => ((z + 228) / 476) * S;
-    g.fillStyle = '#274b63'; g.fillRect(0, 0, S, S);                        // sea all around
-    g.fillStyle = '#3f7d5a'; g.fillRect(mx(-268), mz(-228), S, mz(238) - mz(-228)); // land mass base (park tone)
-    g.fillStyle = '#8d8272'; g.fillRect(mx(-CITY.extentX - 26), mz(-CITY.extentZ - 20), mx(CITY.extentX + 26) - mx(-CITY.extentX - 26), mz(CITY.beachZ) - mz(-CITY.extentZ - 20));
-    g.fillStyle = '#57a773'; g.fillRect(mx(-40), mz(-80), mx(40) - mx(-40), mz(0) - mz(-80));  // the park
-    g.fillStyle = '#e8cf9f'; g.fillRect(0, mz(CITY.beachZ), S, mz(CITY.oceanZ) - mz(CITY.beachZ)); // beach
-    g.fillStyle = '#14707e'; g.fillRect(0, mz(CITY.oceanZ), S, S - mz(CITY.oceanZ));           // ocean
-    // the Dome: a grey ring with a green pitch, and Lola's Quay reaching into the sea
-    const st = CITY.stadium;
-    g.fillStyle = '#b9b2a2';
-    g.beginPath(); g.arc(mx(st.cx), mz(st.cz), (st.r / 536) * S + 3, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#57a773';
-    g.beginPath(); g.arc(mx(st.cx), mz(st.cz), (st.r / 536) * S, 0, Math.PI * 2); g.fill();
+  // world → minimap coords: x [-270, 270], z [-230, 350] onto 190×190
+  mx(x) { return (x + 270) / 540 * 190; }
+  mz(z) { return (z + 230) / 580 * 190; }
+  prerenderMap() {
+    const c = document.createElement('canvas');
+    c.width = 190; c.height = 190;
+    const g = c.getContext('2d');
+    g.fillStyle = '#14607e'; g.fillRect(0, 0, 190, 190);                       // sea
+    g.fillStyle = '#8f8672'; g.fillRect(this.mx(-270), this.mz(-230), this.mx(270) - this.mx(-270), this.mz(190) - this.mz(-230)); // land
+    g.fillStyle = '#e8d29a'; g.fillRect(this.mx(-270), this.mz(186), this.mx(270) - this.mx(-270), this.mz(238) - this.mz(186));   // beach
+    g.fillStyle = '#3d4148';                                                    // roads
+    for (const x of CITY.avenuesX) g.fillRect(this.mx(x) - 2, this.mz(-230), 4, this.mz(190) - this.mz(-230));
+    for (const z of CITY.boulevardsZ) g.fillRect(this.mx(-270), this.mz(z) - 2, this.mx(270) - this.mx(-270), 4);
+    g.fillStyle = '#58a447';                                                    // park
+    g.fillRect(this.mx(-32), this.mz(-72), this.mx(32) - this.mx(-32), this.mz(-8) - this.mz(-72));
+    g.fillStyle = '#9b958a';                                                    // stadium
+    g.beginPath(); g.arc(this.mx(CITY.stadium.cx), this.mz(CITY.stadium.cz), 9, 0, 7); g.fill();
+    g.fillStyle = '#8a6844';                                                    // pier
     const P = CITY.pier;
-    g.fillStyle = '#a87f52'; g.fillRect(mx(P.minX), mz(P.minZ), mx(P.maxX) - mx(P.minX), S - mz(P.minZ));
-    g.strokeStyle = '#d8d3c8'; g.lineWidth = 2;
-    for (const zc of CITY.boulevardsZ) { g.beginPath(); g.moveTo(mx(-CITY.extentX - 26), mz(zc)); g.lineTo(mx(CITY.extentX + 26), mz(zc)); g.stroke(); }
-    for (const xc of CITY.avenuesX) { g.beginPath(); g.moveTo(mx(xc), mz(-CITY.extentZ - 20)); g.lineTo(mx(xc), mz(CITY.beachZ)); g.stroke(); }
-    // unclaimed mission starts glow gold so a free-roaming player can find work
-    for (const s of state.starts || []) {
-      g.fillStyle = '#ffc93e';
-      g.save(); g.translate(mx(s.x), mz(s.z)); g.rotate(Math.PI / 4);
-      g.fillRect(-2.6, -2.6, 5.2, 5.2); g.restore();
-    }
-    if (state.safehouse) {   // Dario's lot: gold while it is for sale, teal once it is home
-      const hx = mx(state.safehouse.x), hz = mz(state.safehouse.z);
-      g.fillStyle = state.safehouse.owned ? '#2ee6a8' : '#ffd23e';
-      g.fillRect(hx - 3, hz - 0.5, 6, 4.5);
-      g.beginPath(); g.moveTo(hx - 4.2, hz - 0.5); g.lineTo(hx, hz - 4.6); g.lineTo(hx + 4.2, hz - 0.5); g.closePath(); g.fill();
-    }
-    if (state.target) {
-      const pulse = 4 + Math.sin(performance.now() / 240) * 1.6;
-      this.drawMissionIcon(g, mx(state.target.x), mz(state.target.z), state.target.kind, pulse);
-    }
-    g.fillStyle = '#e8ecf1';
-    for (const c of state.traffic) { g.fillRect(mx(c.x) - 1.4, mz(c.z) - 1.4, 2.8, 2.8); }
-    // the cruising boats, plotted as pale hulls on the water (v3.1)
-    g.fillStyle = '#f2f0eb';
-    for (const b of state.boats || []) { g.fillRect(mx(b.x) - 1.8, mz(b.z) - 1.1, 3.6, 2.2); }
-    for (const c of state.cops) {
-      g.fillStyle = (performance.now() % 500 < 250) ? '#ff4040' : '#4aa8ff';
-      g.beginPath(); g.arc(mx(c.x), mz(c.z), 3, 0, Math.PI * 2); g.fill();
-    }
-    if (state.rival) {   // Rico's Velocity RS, magenta so the race reads at a glance
-      g.fillStyle = '#ff4ae0';
-      g.beginPath(); g.arc(mx(state.rival.x), mz(state.rival.z), 3.4, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#10131c'; g.lineWidth = 1; g.stroke();
+    g.fillRect(this.mx(P.minX), this.mz(P.minZ), this.mx(P.maxX) - this.mx(P.minX), this.mz(P.maxZ) - this.mz(P.minZ));
+    return c;
+  }
+  drawMinimap(s) {
+    const g = this.map;
+    g.clearRect(0, 0, 190, 190);
+    g.drawImage(this.staticMap, 0, 0);
+    const dot = (x, z, color, r = 2.4) => { g.fillStyle = color; g.beginPath(); g.arc(this.mx(x), this.mz(z), r, 0, 7); g.fill(); };
+    for (const b of s.boats) dot(b.x, b.z, '#ffffff', 1.8);
+    // safehouse: a little house glyph, gold until bought, teal after
+    const S = CITY.safehouse;
+    g.fillStyle = s.houseOwned ? '#2fe8c8' : '#ffc93c';
+    g.fillRect(this.mx(S.garageX) - 3, this.mz(S.garageZ) - 2, 6, 5);
+    g.beginPath();
+    g.moveTo(this.mx(S.garageX) - 4, this.mz(S.garageZ) - 2);
+    g.lineTo(this.mx(S.garageX), this.mz(S.garageZ) - 6);
+    g.lineTo(this.mx(S.garageX) + 4, this.mz(S.garageZ) - 2);
+    g.fill();
+    for (const cop of s.cops) dot(cop.x, cop.z, Math.sin(performance.now() * 0.012) > 0 ? '#3f8cff' : '#ff4040', 2.2);
+    if (s.rival) dot(s.rival.x, s.rival.z, '#ff2fb3', 2.6);
+    if (s.target) {
+      const pulse = 3.4 + Math.sin(performance.now() * 0.008) * 1.1;
+      g.strokeStyle = '#2fe8c8'; g.lineWidth = 1.6;
+      g.beginPath(); g.arc(this.mx(s.target.x), this.mz(s.target.z), pulse + 2.4, 0, 7); g.stroke();
+      dot(s.target.x, s.target.z, '#2fe8c8', 2.2);
     }
     // player arrow
-    const px = mx(state.px), pz = mz(state.pz);
-    g.save(); g.translate(px, pz); g.rotate(Math.atan2(Math.sin(state.heading), -Math.cos(state.heading)));
-    g.fillStyle = '#ffffff'; g.strokeStyle = '#10131c'; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(0, -6); g.lineTo(4.4, 5); g.lineTo(0, 2.4); g.lineTo(-4.4, 5); g.closePath(); g.fill(); g.stroke();
+    g.save();
+    g.translate(this.mx(s.player.x), this.mz(s.player.z));
+    g.rotate(Math.PI - s.player.heading);   // map: x right, z down; heading 0 faces south (down)
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.moveTo(0, -5); g.lineTo(3.4, 4); g.lineTo(0, 2); g.lineTo(-3.4, 4); g.closePath(); g.fill();
     g.restore();
-    g.fillStyle = '#ffd9a0'; g.font = 'bold 10px Verdana'; g.textAlign = 'right';
-    g.fillText('N', S - 6, 13);
+  }
+  setCash(n) {
+    if (this.lastCash === n) return;
+    this.cashEl.textContent = '$' + n.toLocaleString();
+    if (this.lastCash !== null) {   // pop on change
+      this.cashEl.classList.remove('bump');
+      void this.cashEl.offsetWidth;
+      this.cashEl.classList.add('bump');
+    }
+    this.lastCash = n;
+  }
+  setWanted(w) {
+    const stars = Math.ceil(w - 1e-6);
+    if (stars === this.lastStars) return;
+    const spans = this.starsEl.children;
+    for (let i = 0; i < spans.length; i++) {
+      spans[i].classList.toggle('on', i < stars);
+      if (i === stars - 1 && stars > this.lastStars) {
+        spans[i].classList.remove('flash'); void spans[i].offsetWidth; spans[i].classList.add('flash');
+      }
+    }
+    this.lastStars = stars;
+  }
+  banner(title, sub = '', ms = 3600) {
+    this.bannerTitle.textContent = title;
+    this.bannerSub.textContent = sub;
+    this.bannerEl.classList.add('show');
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => this.bannerEl.classList.remove('show'), ms);
+  }
+  objective(text) {
+    if (text) { this.objectiveEl.textContent = text; this.objectiveEl.classList.add('show'); }
+    else this.objectiveEl.classList.remove('show');
+  }
+  prompt(text) {
+    if (text) { this.promptEl.textContent = text; this.promptEl.classList.add('show'); }
+    else this.promptEl.classList.remove('show');
+  }
+  setBust(v) {
+    if (v === null || v <= 0.01) { this.bustWrap.classList.remove('show'); return; }
+    this.bustWrap.classList.add('show');
+    this.bustFill.style.width = (v * 100).toFixed(1) + '%';
+  }
+  setDrive(speedKmh, health01) {
+    if (speedKmh === null) { this.driveEl.classList.remove('show'); return; }
+    this.driveEl.classList.add('show');
+    this.speedEl.textContent = String(Math.round(Math.abs(speedKmh)));
+    this.carHealthFill.style.width = (health01 * 100).toFixed(0) + '%';
+    this.carHealthFill.style.background = health01 > 0.4 ? '#39d353' : health01 > 0.15 ? '#f7b731' : '#e84118';
+  }
+  setHealth(v01) {
+    if (v01 === null || v01 > 0.999) { this.healthWrap.classList.remove('show'); return; }
+    this.healthWrap.classList.add('show');
+    this.healthFill.style.width = (v01 * 100).toFixed(0) + '%';
+  }
+  bigText(text, color) {
+    this.bigEl.textContent = text;
+    this.bigEl.style.color = color;
+    this.bigEl.classList.remove('show'); void this.bigEl.offsetWidth;
+    this.bigEl.classList.add('show');
   }
 }

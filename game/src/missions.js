@@ -1,201 +1,416 @@
-// Missions for Madame Lola: "Sunset Sprint", a checkpoint run the length of the
-// city; "Hot Package", a pickup at Lola's Depot delivered to the marina with the
-// police invited; "Harbor Run GP", a street race against Lola's rival wheelman
-// over the same checkpoints the player runs; "Island Drops", a timed
-// multi-drop delivery where every drop buys seconds back; and (v3) the "Grand
-// Tour", a five-leg sightseeing run that strings the whole map together —
-// dockside, the end of Lola's Quay, midtown, the east blocks and home to Ocean
-// Drive. Gold beacons mark the starts; the target beacon, the HUD objective
-// line and the minimap marker all track the active stage. A stage may carry
-// `heat` (stars on arrival) and `timeBonus` (seconds handed back on arrival).
+// The Story of Vice Harbor: ten chapters, unlocked in order, that take
+// Dario Venn from broke newcomer to the harbor's king wheelman. Each chapter
+// opens with a story banner (who gives the job, and the beat), runs on the
+// shared stage machinery — go-to stages, timed stages, a steal, escapes that
+// demand a cold trail, and two races against Rico — and pays into the chain:
+// 250 → 1050 → 2250 → 3750 → 5250 → 6350 → 7250 → 8550 → 10750 → 13350 → 17350.
 import * as THREE from 'three';
-import { clamp } from './random.js';
-
-function beacon(color, r = 2.4) {
-  const g = new THREE.Group();
-  const cyl = new THREE.Mesh(
-    new THREE.CylinderGeometry(r, r, 16, 18, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }),
-  );
-  cyl.position.y = 8; g.add(cyl);
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(r * 0.7, r, 24),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
-  );
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.32; g.add(ring);
-  return g;
-}
+import { REWARDS, TUNING, CITY, modelById } from './config.js';
+import { clamp, angleDelta, dist2d } from './random.js';
+import { Vehicle } from './cars.js';
 
 export const MISSION_DEFS = [
   {
-    id: 'sprint', kind: 'checkpoints', name: 'Sunset Sprint', reward: 800, timeLimit: 170,
-    blurb: 'Hit every checkpoint before the clock runs out.',
-    start: { x: -150, z: 176, label: 'the promenade booth' },
+    id: 'sprint', name: 'Sunset Sprint', reward: REWARDS.sprint,
+    giver: 'Lola Marchetti, Lola\'s Quay',
+    intro: 'Lola sizes up the new arrival: "Fresh off the boat, huh? Show me you can run my waterfront."',
+    start: { x: 24, z: 171 },
     stages: [
-      { x: -120, z: 160, label: 'Checkpoint 1' }, { x: -40, z: 84, label: 'Checkpoint 2' },
-      { x: 44, z: 4, label: 'Checkpoint 3' }, { x: 124, z: -76, label: 'Checkpoint 4' },
-      { x: 196, z: -156, label: 'Checkpoint 5' }, { x: 116, z: -156, label: 'Final checkpoint' },
+      { x: 140, z: 176, r: 9, label: 'Sprint east along the promenade' },
+      { x: 190, z: 208, r: 9, label: 'Touch the quay gates' },
+      { x: -40, z: 176, r: 9, label: 'Bring it home: the west steps' },
     ],
   },
   {
-    id: 'package', kind: 'delivery', name: 'Hot Package', reward: 1200, timeLimit: 300,
-    blurb: 'Pick up at Lola\'s Depot. Deliver to the marina. Do not get caught holding it.',
-    start: { x: 60, z: 176, label: 'the marina steps' },
+    id: 'package', name: 'Hot Package', reward: REWARDS.package,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Uncle Sal has heard about the runner: "One package, no questions. Don\'t let Harbor PD ask any either."',
+    start: { x: -80, z: 66 },
     stages: [
-      { x: 160, z: -84, label: 'Pick up the package at Lola\'s Depot', heat: 0 },
-      { x: 60, z: 182, label: 'Deliver to the marina', heat: 2 },
+      { x: -216, z: 152, r: 11, label: 'Pick up the package at the west docks', pickup: true },
+      { x: 196, z: -88, r: 11, label: 'Deliver to the Dome east gate', deliver: true },
     ],
   },
   {
-    id: 'race', kind: 'race', name: 'Harbor Run GP', reward: 1500, timeLimit: 300,
-    blurb: 'Beat Rico, Lola\'s rival wheelman, around the harbour loop. Winner takes the purse.',
-    start: { x: -196, z: 176, label: 'the west promenade start line' },
+    id: 'drops', name: 'Island Drops', reward: REWARDS.drops,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Sal again: "Three drops around my bay before the clock eats them. The boat leaves when it leaves."',
+    start: { x: 190, z: 208 },
+    timer: 165, stageBonus: 30, timerLabel: 'drop',
     stages: [
-      { x: -120, z: 160, label: 'Gate 1 — Ocean Drive' }, { x: 116, z: 160, label: 'Gate 2 — the east shore' },
-      { x: 196, z: 84, label: 'Gate 3 — marina bend' }, { x: 196, z: -76, label: 'Gate 4 — dockside' },
-      { x: 116, z: -156, label: 'Gate 5 — north row' }, { x: -44, z: -156, label: 'Gate 6 — the old town' },
-      { x: -196, z: -84, label: 'Gate 7 — west climb' }, { x: -196, z: 168, label: 'The finish — west promenade' },
+      { x: 190, z: 306, r: 9, label: 'Drop 1: the lighthouse' },
+      { x: -120, z: -8, r: 11, label: 'Drop 2: west midtown' },
+      { x: 40, z: -152, r: 11, label: 'Drop 3: the north boulevards' },
     ],
   },
   {
-    id: 'drops', kind: 'drops', name: 'Island Drops', reward: 1500, timeLimit: 130,
-    blurb: 'One crate, three drops: the Dome, the downtown tower, the end of Lola\'s Quay. Every drop buys time.',
-    start: { x: 160, z: -84, label: 'Lola\'s Depot loading bay' },
-    stages: [
-      { x: 160, z: -84, label: 'Load the crate at Lola\'s Depot', heat: 0 },
-      { x: 160, z: -156, label: 'Drop 1 — the Dome north gate', heat: 1, timeBonus: 30 },
-      { x: 4, z: -4, label: 'Drop 2 — the downtown tower', heat: 1, timeBonus: 30 },
-      { x: 192, z: 290, label: 'Drop 3 — the end of Lola\'s Quay', heat: 2, timeBonus: 0 },
+    id: 'grandprix', name: 'Harbor Run GP', reward: REWARDS.grandprix,
+    giver: 'Rico Delgado, street king',
+    intro: 'Rico, king of the grid, laughs at the newcomer: "Cute. Race me for the rep, wheelman."',
+    start: { x: -206, z: 166 },
+    race: true,
+    gates: [
+      { x: -40, z: 160 }, { x: 120, z: 160 }, { x: 200, z: 160 }, { x: 200, z: 80 },
+      { x: 200, z: 0 }, { x: 200, z: -80 }, { x: 120, z: -80 }, { x: -40, z: -80 },
+      { x: -200, z: -80 }, { x: -200, z: 0 }, { x: -200, z: 80 }, { x: -200, z: 160 },
     ],
   },
   {
-    id: 'grandtour', kind: 'checkpoints', name: 'Grand Tour', reward: 1100, timeLimit: 280,
-    blurb: 'Lola\'s investors want the full tour: dockside, the quay end, midtown, the east blocks — then home.',
-    start: { x: 120, z: 176, label: 'the east promenade booth' },
+    id: 'tour', name: 'Grand Tour', reward: REWARDS.tour,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Sal\'s proving run: "Every corner of my city, one tank of daylight. Then we talk business."',
+    start: { x: -206, z: 176 },
     stages: [
-      { x: 196, z: -84, label: 'Leg 1 — dockside' },
-      { x: 192, z: 292, label: 'Leg 2 — the end of Lola\'s Quay' },
-      { x: 4, z: -44, label: 'Leg 3 — midtown' },
-      { x: 124, z: 84, label: 'Leg 4 — the east blocks' },
-      { x: 116, z: 164, label: 'Final leg — Ocean Drive' },
+      { x: 190, z: 300, r: 10, label: 'Leg 1: the end of Lola\'s Quay' },
+      { x: 0, z: 4, r: 12, label: 'Leg 2: midtown crossing' },
+      { x: 164, z: -44, r: 12, label: 'Leg 3: the east blocks' },
+      { x: 40, z: 166, r: 12, label: 'Final leg: Ocean Drive' },
     ],
+  },
+  {
+    id: 'heat', name: 'Harbor Heat', reward: REWARDS.heat,
+    giver: 'Uncle Sal, fixer',
+    intro: 'The quay pickup goes sideways — sirens. "Ditch the heat and get home, kid. Don\'t lead them to my door."',
+    start: { x: 150, z: 176 },
+    stages: [
+      { x: 190, z: 250, r: 9, label: 'Make the pickup on Lola\'s Quay', pickup: true, heatMin: 3 },
+      { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Reach the Palm Row drop — with a cold trail', escape: true },
+    ],
+  },
+  {
+    id: 'dome', name: 'Dome Night', reward: REWARDS.dome,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Sal, over a Dome match ticket: "There\'s a Velocity RS in the Dome lot with my name on it. Bring it west. Unscratched."',
+    start: { x: 104, z: -96 },
+    spawnCar: { modelId: 'velocity', paint: 0xd8dde3, x: 131, z: -100, heading: 0 },
+    stages: [
+      { x: 131, z: -100, r: 12, label: 'Steal the silver Velocity RS by the Dome', steal: true, heatMin: 2 },
+      { x: -212, z: 84, r: 11, label: 'Deliver the RS to the west-side garage — keep it alive', needsStolenCar: true },
+    ],
+  },
+  {
+    id: 'cashrun', name: 'Sirens\' Harvest', reward: REWARDS.cashrun,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Sal\'s cash van got hit and the money is scattered: "Five bags, the whole city listening. Bring them to my Palm Row garage — quiet hands, loud engine."',
+    start: { x: -24, z: 52 },
+    timer: 230, timerLabel: 'bag',
+    stages: [
+      { x: -40, z: -44, r: 10, label: 'Bag 1: the park corner', heat: 1 },
+      { x: 44, z: 4, r: 10, label: 'Bag 2: midtown crossing', heat: 1 },
+      { x: -116, z: 84, r: 10, label: 'Bag 3: the west blocks', heat: 1 },
+      { x: 124, z: -36, r: 10, label: 'Bag 4: the east blocks', heat: 1 },
+      { x: 190, z: 306, r: 9, label: 'Bag 5: the end of Lola\'s Quay', heat: 1, heatMin: 5 },
+      { x: CITY.safehouse.garageX, z: CITY.safehouse.garageZ, r: CITY.safehouse.garageR, label: 'Deliver to the Palm Row garage, then break line of sight', losdrop: true },
+    ],
+  },
+  {
+    id: 'revenge', name: 'Rico\'s Revenge', reward: REWARDS.revenge,
+    giver: 'Rico Delgado, street king',
+    intro: 'Rico, pink slip on the dash: "Your crown or mine, wheelman. Long way round — and I\'m not playing nice."',
+    start: { x: -206, z: 176 },
+    race: true, rivalFactor: 0.92, rivalCorner: 0.85, ambushAtGate: 5,
+    gates: [
+      { x: -40, z: 160 }, { x: 120, z: 160 }, { x: 186, z: 190 }, { x: 190, z: 306 },
+      { x: 200, z: 80 }, { x: 200, z: -40 }, { x: 120, z: -80 }, { x: 40, z: -40 },
+      { x: 120, z: 84 }, { x: 190, z: 250 },
+    ],
+  },
+  {
+    id: 'king', name: 'King of Solmarina', reward: REWARDS.king,
+    giver: 'Uncle Sal, fixer',
+    intro: 'Sal\'s last job, and he\'s almost kind about it: "One pickup at the Dome lot, three drops, home by dark. Trust me."',
+    start: { x: 104, z: -60 },
+    legTimer: 60, pinWanted: true,
+    stages: [
+      { x: 131, z: -100, r: 11, label: 'The pickup: Sal\'s car at the Dome lot', sting: true },
+      { x: 0, z: 4, r: 11, label: 'Drop 1: midtown crossing' },
+      { x: 164, z: -44, r: 11, label: 'Drop 2: the east blocks' },
+      { x: -120, z: -8, r: 11, label: 'Drop 3: west midtown' },
+      { x: 190, z: 306, r: 9, label: 'The lighthouse — Lola is waiting', storyBanner: { title: 'Lola takes the package', sub: '"Boat\'s waiting, king. Get home — I\'ll make sure Sal doesn\'t."' } },
+      { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Final leg: home to Palm Row — still at five stars' },
+    ],
+    finalBanner: { title: '👑 King of Solmarina', sub: 'Sal\'s empire falls off-screen — Dario and Lola run the harbor now.' },
   },
 ];
+MISSION_DEFS.forEach((d, i) => { d.chapter = i + 1; });
 
-export class MissionSystem {
-  constructor(scene) {
+function makeBeacon(color) {
+  const grp = new THREE.Group();
+  const ringMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3, 30), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.35; grp.add(ring);
+  const beamMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15, depthWrite: false });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.9, 16, 14, 1, true), beamMat);
+  beam.position.y = 8; grp.add(beam);
+  grp.userData = { ring, ringMat, beamMat };
+  return grp;
+}
+
+export class MissionRunner {
+  /** game: the facade from main.js (playerState, addCash, setWantedMin, banner, vehicles...). */
+  constructor(scene, game) {
     this.scene = scene;
-    this.active = null;         // { def, stage, timeLeft }
-    this.completed = new Set();
-    this.onEvent = () => {};
-    this.rivalStage = -1;       // race only: main.js reports the rival's progress here
-    this.startBeacons = new Map();
+    this.game = game;
+    this.active = null;        // { def, stage, timer, rico, stolenCar... }
+    this.time = 0;
+    this.startMarkers = new Map();
     for (const def of MISSION_DEFS) {
-      const b = beacon(0xffc93e, 2.6);
+      const b = makeBeacon(0xffc93c);
       b.position.set(def.start.x, 0, def.start.z);
       scene.add(b);
-      this.startBeacons.set(def.id, b);
+      this.startMarkers.set(def.id, b);
     }
-    this.targetBeacon = beacon(0x2ee6a8, 3);
+    this.targetBeacon = makeBeacon(0x2fe8c8);
     this.targetBeacon.visible = false;
     scene.add(this.targetBeacon);
-    this.t = 0;
   }
-  /** If the player stands at a start beacon, begin that mission. Returns true when started. */
-  tryStart(px, pz) {
-    if (this.active) return false;
-    for (const def of MISSION_DEFS) {
-      if (this.completed.has(def.id)) continue;
-      if (Math.hypot(px - def.start.x, pz - def.start.z) < 5) {
-        this.active = { def, stage: 0, timeLeft: def.timeLimit };
-        this.rivalStage = def.kind === 'race' ? 0 : -1;
-        this.targetBeacon.visible = true;
-        this.moveTargetBeacon();
-        this.onEvent('start', { def });
-        return true;
-      }
-    }
-    return false;
-  }
-  /** End the active mission as failed from outside (the rival took the race). */
-  forceFail(reason) {
-    if (!this.active) return;
-    const def = this.active.def;
-    this.active = null; this.targetBeacon.visible = false;
-    this.onEvent('fail', { def, reason });
-  }
-  moveTargetBeacon() {
-    const s = this.active.def.stages[this.active.stage];
-    this.targetBeacon.position.set(s.x, 0, s.z);
+  defById(id) { return MISSION_DEFS.find((d) => d.id === id); }
+  isDone(id) { return this.game.isMissionDone(id); }
+  /** The next chapter in the story: the first one not yet completed. */
+  nextChapter() { return MISSION_DEFS.find((d) => !this.isDone(d.id)) || null; }
+  isUnlocked(def) { return this.nextChapter() === def; }
+  chapterTag(def) { return `Chapter ${def.chapter} — ${def.name}`; }
+  /** The chapter whose start beacon the player stands at, if it is unlocked. */
+  nearStart() {
+    if (this.active) return null;
+    const next = this.nextChapter();
+    if (!next) return null;
+    const p = this.game.playerState();
+    return dist2d(p.x, p.z, next.start.x, next.start.z) < 5.5 ? next : null;
   }
   target() {
     if (!this.active) return null;
-    const s = this.active.def.stages[this.active.stage];
-    return { x: s.x, z: s.z, label: s.label, kind: this.active.def.kind };
+    const a = this.active;
+    if (a.def.race) { const g = a.def.gates[a.gate]; return g ? { x: g.x, z: g.z } : null; }
+    const s = a.def.stages[a.stage];
+    return s ? { x: s.x, z: s.z } : null;
   }
-  /** Start points of missions still on offer, for the minimap. */
-  openStarts() {
-    if (this.active) return [];
-    return MISSION_DEFS.filter((d) => !this.completed.has(d.id)).map((d) => ({ x: d.start.x, z: d.start.z, kind: d.kind }));
-  }
-  objective() {
-    if (!this.active) return null;
-    const { def, stage, timeLeft } = this.active;
-    const s = def.stages[stage];
-    const clock = `${Math.max(0, Math.ceil(timeLeft))}s left`;
-    let sub;
-    if (def.kind === 'race') {
-      sub = `You: gate ${stage + 1} of ${def.stages.length} • Rico: gate ${Math.min(this.rivalStage + 1, def.stages.length)} of ${def.stages.length} • ${clock}`;
-    } else if (def.kind === 'drops') {
-      sub = stage === 0 ? `${clock} • $${def.reward} for all three drops` : `Drop ${stage} of ${def.stages.length - 1} • ${clock} • each drop adds time`;
-    } else if (def.stages.length > 1) {
-      sub = `Stage ${stage + 1} of ${def.stages.length} • ${clock} • $${def.reward} on completion`;
+  start(def) {
+    const g = this.game;
+    if (this.isDone(def.id)) return false;
+    if (!this.isUnlocked(def)) {
+      const next = this.nextChapter();
+      g.banner('Chapter locked', `Finish ${this.chapterTag(next)} first — the story runs in order.`);
+      return false;
+    }
+    if (this.active) return false;
+    if (def.race) {
+      const p = g.playerState();
+      if (!p.inCar) { g.banner(this.chapterTag(def), 'You need a car to race. Bring one to the beacon.'); return false; }
+      // Rico lines up beside the player in his magenta RS
+      const rico = new Vehicle(this.scene, modelById('velocity'), 0xff2fb3, {});
+      rico.driver = 'rival';
+      rico.place(def.start.x + 4, def.start.z - 4, Math.PI / 2, g.pierRect());
+      g.addVehicle(rico);
+      this.active = { def, gate: 0, rico, ricoGate: 0, countdown: 2.2 };
+      g.banner(this.chapterTag(def), def.intro);
     } else {
-      sub = `${clock} • $${def.reward} on delivery`;
+      this.active = { def, stage: 0, timer: def.timer || 0, legT: def.legTimer || 0, losTimer: 0 };
+      if (def.spawnCar) {
+        const sc = def.spawnCar;
+        const v = new Vehicle(this.scene, modelById(sc.modelId), sc.paint, {});
+        v.driver = 'parked';
+        v.place(sc.x, sc.z, sc.heading, g.pierRect());
+        g.addVehicle(v);
+        this.active.stolenCar = v;
+      }
+      g.banner(this.chapterTag(def), def.intro);
     }
-    return { title: `${def.name} — ${s.label}`, sub };
+    this.refreshMarkers();
+    return true;
   }
-  update(dt, px, pz) {
-    this.t += dt;
-    for (const [id, b] of this.startBeacons) {
-      b.visible = !this.active && !this.completed.has(id);
-      b.rotation.y += dt * 0.8;
-      b.position.y = Math.sin(this.t * 2 + b.position.x) * 0.15;
-      // the beacons breathe (v3.1): light column and ground ring swell and
-      // fade together, so an unclaimed job glows like it is calling you over
-      const pulse = 0.5 + 0.5 * Math.sin(this.t * 2.6 + b.position.x * 0.7);
-      b.children[0].material.opacity = 0.22 + pulse * 0.18;
-      b.children[1].material.opacity = 0.55 + pulse * 0.4;
-      const bs = 1 + pulse * 0.06; b.scale.set(bs, 1, bs);
+  cleanupActive() {
+    const g = this.game;
+    const a = this.active;
+    if (!a) return;
+    g.setPinnedWanted(null);   // the finale's pin never outlives its chapter
+    if (a.rico) g.removeVehicle(a.rico);
+    // the Dome RS goes back to the world only if Dario never took it
+    if (a.stolenCar && a.stolenCar !== g.playerCar()) g.removeVehicle(a.stolenCar);
+  }
+  fail(reason) {
+    const g = this.game;
+    this.cleanupActive();
+    this.active = null;
+    g.banner('Chapter failed', reason);
+    this.refreshMarkers();
+  }
+  complete() {
+    const g = this.game;
+    const def = this.active.def;
+    this.cleanupActive();
+    this.active = null;
+    g.markMissionDone(def.id);
+    g.addCash(def.reward);
+    if (def.finalBanner) {
+      g.banner(def.finalBanner.title, `${def.finalBanner.sub} (+$${def.reward.toLocaleString()})`);
+    } else {
+      const next = this.nextChapter();
+      g.banner(`${this.chapterTag(def)} — complete!`,
+        `+$${def.reward.toLocaleString()} · new balance $${g.cash().toLocaleString()}${next ? ` · Next: ${this.chapterTag(next)}` : ''}`);
     }
-    if (!this.active) return;
-    this.targetBeacon.rotation.y -= dt * 1.2;
-    const tpulse = 1 + (0.5 + 0.5 * Math.sin(this.t * 3.4)) * 0.09;   // the live target throbs faster — hurry
-    this.targetBeacon.scale.set(tpulse, 1, tpulse);
-    this.active.timeLeft -= dt;
-    if (this.active.timeLeft <= 0) {
-      const def = this.active.def;
-      this.active = null; this.targetBeacon.visible = false;
-      this.onEvent('fail', { def });
-      return;
-    }
-    const s = this.active.def.stages[this.active.stage];
-    if (Math.hypot(px - s.x, pz - s.z) < 7) {
-      const def = this.active.def;
-      if (s.heat) this.onEvent('heat', { stars: s.heat, def });
-      if (s.timeBonus) {
-        this.active.timeLeft += s.timeBonus;
-        this.onEvent('bonus', { def, seconds: s.timeBonus });
-      }
-      this.active.stage += 1;
-      if (this.active.stage >= def.stages.length) {
-        this.active = null; this.targetBeacon.visible = false;
-        this.completed.add(def.id);
-        this.onEvent('complete', { def, reward: def.reward });
-      } else {
-        this.moveTargetBeacon();
-        this.onEvent('stage', { def, stage: this.active.stage, left: def.stages.length - this.active.stage });
-      }
-    }
+    this.refreshMarkers();
   }
 }
+
+Object.assign(MissionRunner.prototype, {
+  update(dt) {
+    this.time += dt;
+    for (const m of this.startMarkers.values()) {
+      if (!m.visible) continue;
+      const s = 1 + Math.sin(this.time * 2.6) * 0.07;
+      m.userData.ring.scale.set(s, s, 1);
+    }
+    const a = this.active;
+    if (!a) { this.targetBeacon.visible = false; return; }
+    const g = this.game;
+    const p = g.playerState();
+    const def = a.def;
+    // the Dome RS must survive its own chapter
+    if (a.stolenCar && a.stolenCar.dead) {
+      this.fail('The Velocity RS is wrecked. Sal wanted it unscratched — the deal is off.');
+      return;
+    }
+    // the finale: once the sting has sprung, the heat is pinned at five stars
+    if (def.pinWanted && a.stingFired && g.wantedLevel() < 5) g.setWantedMin(5);
+    // per-leg pressure in the finale
+    if (def.legTimer) {
+      a.legT -= dt;
+      if (a.legT <= 0) { this.fail('Too slow — with the net this tight, the run dies. Retry the chapter.'); return; }
+    }
+    const t = this.target();
+    if (t) {
+      this.targetBeacon.visible = true;
+      this.targetBeacon.position.set(t.x, 0, t.z);
+      const s = 1 + Math.sin(this.time * 4.2) * 0.1;   // the live target throbs faster
+      this.targetBeacon.userData.ring.scale.set(s, s, 1);
+    }
+    if (def.race) { this.updateRace(dt, a, p); return; }
+    const stage = def.stages[a.stage];
+    if (!stage) return;
+    const tag = this.chapterTag(def);
+    // timed chapters tick down
+    if (def.timer) {
+      a.timer -= dt;
+      const left = Math.max(0, Math.ceil(a.timer));
+      g.objective(`${tag} · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left · ${def.timerLabel || 'drop'} ${a.stage + 1}/${def.stages.length}${a.timer < 20 ? ' — HURRY' : ''}`);
+      if (a.timer <= 0) { this.fail(def.id === 'cashrun' ? 'The trail went cold and the money scattered. Sal will want a faster run.' : 'Out of time. The drops will wait for another run.'); return; }
+    }
+    const arrive = () => {
+      if (stage.pickup) g.banner('Package on board', 'Now get moving — and watch for Harbor PD.');
+      if (stage.sting) {
+        a.stingFired = true;
+        g.setPinnedWanted(5);
+        g.banner('IT\'S A STING!', 'Sal sold you out — five stars, roadblocks, the helicopter. RUN.');
+      }
+      if (stage.storyBanner) g.banner(stage.storyBanner.title, stage.storyBanner.sub);
+      if (stage.deliver) g.setWantedMin(2);
+      if (stage.heatMin) g.setWantedMin(stage.heatMin);
+      if (stage.heat) { g.addHeat(stage.heat); g.banner('Bag grabbed', 'The heat just went up a star. Keep moving!'); }
+      if (def.stageBonus) { a.timer += def.stageBonus; g.banner('Drop made', `+${def.stageBonus} seconds on the clock.`); }
+      if (def.legTimer) a.legT = def.legTimer;
+      a.stage++;
+      if (a.stage >= def.stages.length) this.complete();
+    };
+    if (stage.steal) {
+      if (!def.timer) g.objective(`${tag} · ${stage.label}`);
+      if (g.playerCar() && g.playerCar() === a.stolenCar) {
+        g.banner('That\'s the one!', 'Harbor PD caught the theft on camera — two stars. Get it west, keep it whole.');
+        arrive();
+      }
+      return;
+    }
+    if (stage.escape) {
+      const at = dist2d(p.x, p.z, stage.x, stage.z) < stage.r;
+      const hot = g.wantedLevel() > 0.05;
+      if (!def.timer) g.objective(hot
+        ? `${tag} · Lose the heat first! (${'★'.repeat(Math.ceil(g.wantedLevel()))}) — break line of sight and let it cool`
+        : `${tag} · ${stage.label}`);
+      if (at && !hot) arrive();
+      return;
+    }
+    if (stage.losdrop) {
+      // the drop completes only after 3 s inside the garage with no ground
+      // unit close enough to see it (the helicopter does not count)
+      const at = dist2d(p.x, p.z, stage.x, stage.z) < stage.r;
+      const clear = g.nearestCopDist() > 45;
+      a.losTimer = at && clear ? (a.losTimer || 0) + dt : 0;
+      const left = Math.max(0, Math.ceil(a.timer));
+      const clock = def.timer ? ` · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : '';
+      g.objective(at
+        ? (clear
+          ? `${tag} · Hold in the garage, out of sight… ${Math.max(0, 3 - a.losTimer).toFixed(1)}s${clock}`
+          : `${tag} · Cops can still see you — break line of sight inside the garage!${clock}`)
+        : `${tag} · ${stage.label}${clock}`);
+      if (a.losTimer >= 3) arrive();
+      return;
+    }
+    if (!def.timer) {
+      if (stage.needsStolenCar && g.playerCar() !== a.stolenCar) {
+        g.objective(`${tag} · Deliver the silver RS itself — no substitutes`);
+      } else {
+        g.objective(`${tag} · ${stage.label}${def.legTimer ? ` · ${Math.max(0, Math.ceil(a.legT))}s for this leg` : ''}`);
+      }
+    }
+    if (dist2d(p.x, p.z, stage.x, stage.z) < stage.r) {
+      if (stage.needsStolenCar && g.playerCar() !== a.stolenCar) return;   // wrong car: no delivery
+      arrive();
+    }
+  },
+  updateRace(dt, a, p) {
+    const g = this.game;
+    const def = a.def;
+    const rico = a.rico;
+    if (a.countdown > 0) {
+      a.countdown -= dt;
+      rico.step(dt, { throttle: 0, steer: 0, handbrake: true }, g.world());
+    } else {
+      // Rico drives the same gates, at a capped fraction of his car's legs
+      const gate = def.gates[a.ricoGate];
+      if (gate) {
+        const want = Math.atan2(gate.x - rico.x, gate.z - rico.z);
+        const steer = clamp(angleDelta(rico.heading, want) * 1.8, -1, 1);
+        const throttle = Math.abs(angleDelta(rico.heading, want)) > 0.6 ? 0.35 : 1;
+        rico.step(dt, { throttle, steer, handbrake: false }, g.world());
+        const turning = Math.abs(angleDelta(rico.heading, want)) > 0.35;
+        const top = rico.model.topSpeed * (def.rivalFactor || TUNING.rivalSpeedFactor) * (turning ? (def.rivalCorner ?? 0.7) : 1);
+        if (rico.speed > top) rico.speed = top;
+        if (dist2d(rico.x, rico.z, gate.x, gate.z) < 13) {
+          a.ricoGate++;
+          if (a.ricoGate >= def.gates.length) { this.fail(def.id === 'revenge' ? 'Rico keeps his crown — this time. Rematch him at the beacon.' : 'Rico takes the Harbor Run GP. Rematch him at the start beacon.'); return; }
+        }
+      }
+      // Rico plays dirty in the rematch: alongside you, he shoves
+      a.shoveCd = Math.max(0, (a.shoveCd || 0) - dt);
+      const pc = g.playerCar();
+      if (pc && a.shoveCd <= 0 && dist2d(rico.x, rico.z, p.x, p.z) < 4.2) {
+        const away = Math.atan2(pc.x - rico.x, pc.z - rico.z);
+        pc.place(pc.x + Math.sin(away) * 1.1, pc.z + Math.cos(away) * 1.1, pc.heading + (Math.sin(this.time * 13) > 0 ? 0.06 : -0.06), g.pierRect());
+        pc.speed *= 0.9;
+        a.shoveCd = 2.5;
+        if (!a.shoved) { a.shoved = true; g.banner('Rico\'s playing dirty!', 'He\'s shoving you off the line — hold it together!'); }
+      }
+    }
+    const gate = def.gates[a.gate];
+    g.objective(`${this.chapterTag(def)} · gate ${Math.min(a.gate + 1, def.gates.length)}/${def.gates.length} · Rico on ${Math.min(a.ricoGate + 1, def.gates.length)}`);
+    if (gate && dist2d(p.x, p.z, gate.x, gate.z) < 13) {
+      a.gate++;
+      if (a.gate >= def.gates.length) { this.complete(); return; }
+      if (def.ambushAtGate && !a.ambushed && a.gate >= def.ambushAtGate) {
+        a.ambushed = true;
+        g.setWantedMin(3);
+        g.banner('AMBUSH!', 'Harbor PD was tipped off — the race finishes hot!');
+      } else {
+        g.banner(this.chapterTag(def), `Gate ${a.gate}/${def.gates.length}${a.gate > a.ricoGate ? ' — you lead!' : ''}`);
+      }
+    }
+  },
+  refreshMarkers() {
+    const next = this.nextChapter();
+    for (const def of MISSION_DEFS) {
+      const m = this.startMarkers.get(def.id);
+      m.visible = def === next && !this.active;   // only the unlocked chapter shows a beacon
+    }
+    this.targetBeacon.visible = !!this.active;
+  },
+});
