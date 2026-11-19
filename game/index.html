@@ -193,6 +193,72 @@
   #pauseMenu h1 { font-size: 44px; letter-spacing: 4px; color: #ffe9a8; margin: 0 0 18px; }
   #pauseMenu label { color: #bff3ff; font-size: 16px; letter-spacing: 1px; }
   #daySlider { width: 260px; margin: 10px 0 22px; accent-color: #ffb347; }
+  #settingsMenu { background: rgba(6,16,26,.88); display: none; }
+  #settingsMenu.open { display: flex; }
+  #settingsMenu h1 { font-size: 36px; letter-spacing: 3px; color: #ffe9a8; margin: 0 0 16px; }
+  .setPanel { background: rgba(16,34,47,.85); border: 1px solid rgba(191,243,255,.25); border-radius: 14px; padding: 18px 22px; width: min(520px, 92vw); }
+  .setRow { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 12px 0; }
+  .setRow label { color: #bff3ff; font-size: 15px; letter-spacing: .5px; }
+  .setRow input[type=range] { width: 240px; accent-color: #ffb347; }
+  .setRow input[type=checkbox] { width: 20px; height: 20px; accent-color: #ffb347; }
+  .setSeg { display: flex; gap: 6px; }
+  .setSeg button { background: rgba(191,243,255,.08); color: #bff3ff; border: 1px solid rgba(191,243,255,.35); border-radius: 8px; padding: 7px 14px; font-size: 14px; cursor: pointer; }
+  .setSeg button.active { background: #ffb347; color: #20303c; border-color: #ffb347; font-weight: 700; }
+  .setNote { color: #8fa9ba; font-size: 13px; text-align: center; line-height: 1.5; margin: 14px 0 4px; }
+  #mapScreen { background: rgba(6,16,26,.88); display: none; }
+  #mapScreen.open { display: flex; }
+  #mapScreen h1 { font-size: 32px; letter-spacing: 3px; color: #ffe9a8; margin: 0 0 12px; }
+  #bigMap { border-radius: 12px; border: 2px solid rgba(191,243,255,.4); max-width: 94vw; max-height: 74vh; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .mapHint { color: #8fa9ba; font-size: 13px; letter-spacing: 1px; margin-top: 10px; }
+
+  /* ---------- the phone (T) ---------- */
+  #phone {
+    position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center;
+    background: rgba(6,16,26,.45); pointer-events: none;
+  }
+  #phone.open { display: flex; }
+  #phoneFrame {
+    pointer-events: auto; width: 300px; height: 560px; max-height: 92vh; border-radius: 34px;
+    background: linear-gradient(160deg, #1b2530, #0a1118); border: 3px solid #3d4c5c;
+    box-shadow: 0 18px 50px rgba(0,0,0,.7), inset 0 0 0 2px #060a0e;
+    display: flex; flex-direction: column; overflow: hidden; color: #eaf6ff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #phoneBar {
+    display: flex; justify-content: space-between; align-items: center; padding: 9px 18px 5px;
+    font-size: 13px; letter-spacing: 1px; color: #bff3ff;
+  }
+  #phoneBar .notch { width: 74px; height: 15px; border-radius: 8px; background: #060a0e; }
+  #phoneApps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 26px 24px; align-content: start; flex: 1; }
+  .appBtn {
+    pointer-events: auto; cursor: pointer; position: relative; border: none; border-radius: 20px; height: 96px;
+    font-family: inherit; font-size: 30px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.45);
+  }
+  .appBtn span { font-size: 14.5px; letter-spacing: .5px; }
+  .appBtn[data-app="misi"] { background: linear-gradient(150deg, #2e86de, #1b4f8a); }
+  .appBtn[data-app="pesan"] { background: linear-gradient(150deg, #39d353, #1d7a38); }
+  .appBtn[data-app="kontak"] { background: linear-gradient(150deg, #b065d8, #6d3494); }
+  .appBtn[data-app="statistik"] { background: linear-gradient(150deg, #ff9f43, #c96a12); }
+  #pesanBadge {
+    position: absolute; top: -7px; right: -7px; min-width: 24px; height: 24px; border-radius: 12px;
+    background: #e84118; color: #fff; font-size: 14px; font-weight: bold; line-height: 24px; padding: 0 5px; display: none;
+  }
+  #phoneScreen { display: none; flex-direction: column; flex: 1; min-height: 0; }
+  #phoneHead {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid rgba(191,243,255,.18);
+  }
+  #phoneBack, #phoneClose {
+    pointer-events: auto; cursor: pointer; background: rgba(191,243,255,.12); color: #bff3ff; border: none;
+    border-radius: 8px; font-size: 16px; padding: 4px 11px; font-family: inherit;
+  }
+  #phoneAppTitle { font-size: 17px; font-weight: bold; letter-spacing: .5px; flex: 1; text-align: center; }
+  #phoneContent { flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 14.5px; line-height: 1.5; }
+  #phoneContent .phH { font-size: 16.5px; font-weight: bold; color: #ffe9a8; margin-bottom: 8px; }
+  #phoneContent .phLine { padding: 5px 0; border-bottom: 1px solid rgba(191,243,255,.08); }
+  #phoneContent .phMsg { background: rgba(191,243,255,.09); border-radius: 10px; padding: 7px 11px; margin-bottom: 8px; }
+  #phoneContent .phFrom { font-size: 12.5px; color: #7dffb0; letter-spacing: .5px; margin-bottom: 2px; }
+  #phoneHint { text-align: center; font-size: 12px; color: #8fa9ba; padding: 7px 0 11px; letter-spacing: 1px; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.min.js" } }
@@ -227,17 +293,17 @@
 <div id="startScreen" class="screen">
   <h1>KINGTIDE</h1>
   <h2>S O L M A R I N A</h2>
-  <p style="color:#dceef7; letter-spacing:1px; margin:0 0 14px;">Two stories, one city. Dario's rise — and Val &amp; Rafa's run.</p>
-  <button id="newGameBtn" class="btn">▶ KINGTIDE — Cerita Dario</button>
-  <button id="duoBtn" class="btn">▶ KINGTIDE: DUO — Val &amp; Rafa</button>
+  <p style="color:#dceef7; letter-spacing:1px; margin:0 0 14px;">One city, one story — 17 chapters. Dario's rise, then Val &amp; Rafa's run, ending in a bank heist.</p>
+  <button id="newGameBtn" class="btn">▶ KINGTIDE — Satu Cerita · 17 Bab</button>
   <button id="continueBtn" class="btn ghost" style="display:none">Continue</button>
+  <button id="settingsBtn" class="btn ghost">⚙ Pengaturan</button>
   <div id="controls">
     <b>WASD / arrows</b> — move &amp; drive &nbsp;•&nbsp; <b>Mouse</b> — camera / aim<br>
-    <b>Shift</b> — sprint · <b>nitro</b> in a car &nbsp;•&nbsp; <b>Space</b> — handbrake &nbsp;•&nbsp; <b>H</b> — horn<br>
-    <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / Marco's shop<br>
-    <b>Left click</b> — shove · <b>fire</b> when armed &nbsp;•&nbsp; <b>R</b> — reload · <b>radio</b> in a car<br>
-    <b>1–5 / Tab / wheel</b> — switch weapon &nbsp;•&nbsp; <b>Hold Q</b> — weapon wheel<br>
-    <b>Esc / P</b> — pause &nbsp;•&nbsp; Weapons are <b>found</b> in the world or <b>bought</b> from Marco — never given
+    <b>Shift</b> — sprint · <b>nitro</b> in a car &nbsp;•&nbsp; <b>Space</b> — <b>lompat</b> on foot · handbrake in a car &nbsp;•&nbsp; <b>H</b> — horn<br>
+    <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / Marco's shop / bank door<br>
+    <b>Left click</b> — swing the <b>Bat</b> · <b>fire</b> when a gun is equipped &nbsp;•&nbsp; <b>R</b> — reload · <b>radio</b> in a car<br>
+    <b>1–6 / Tab / wheel</b> — switch weapon &nbsp;•&nbsp; <b>Hold Q</b> — weapon wheel &nbsp;•&nbsp; <b>T</b> — HP (phone) &nbsp;•&nbsp; <b>M</b> — Peta (map)<br>
+    <b>Esc / P</b> — pause &nbsp;•&nbsp; You start with a baseball <b>Bat</b>. Guns are <b>found</b> or <b>bought</b> from Marco — never given
   </div>
 </div>
 
@@ -246,7 +312,32 @@
   <button id="resumeBtn" class="btn">Resume</button>
   <label for="daySlider">Time of day</label>
   <input id="daySlider" type="range" min="0" max="100" value="32">
+  <button id="settingsBtn2" class="btn ghost">⚙ Pengaturan</button>
   <button id="restartBtn" class="btn ghost">Restart — new game</button>
+</div>
+
+<div id="settingsMenu" class="screen">
+  <h1>⚙ PENGATURAN</h1>
+  <div class="setPanel">
+    <div class="setRow"><label>Kualitas grafis</label>
+      <div id="qualitySeg" class="setSeg">
+        <button data-q="rendah">Rendah</button><button data-q="sedang">Sedang</button><button data-q="tinggi">Tinggi</button>
+      </div>
+    </div>
+    <div class="setRow"><label>Volume master</label><input id="setMaster" type="range" min="0" max="100"></div>
+    <div class="setRow"><label>Musik (radio)</label><input id="setMusic" type="range" min="0" max="100"></div>
+    <div class="setRow"><label>Efek suara</label><input id="setSfx" type="range" min="0" max="100"></div>
+    <div class="setRow"><label>Bisu (mute)</label><input id="setMute" type="checkbox"></div>
+    <div class="setRow"><label>Sensitivitas mouse</label><input id="setSens" type="range" min="40" max="220"></div>
+  </div>
+  <p class="setNote">Rendah = paling ringan untuk PC lemah (bayangan mati, partikel dikurangi).<br>Tinggi = bayangan besar + resolusi penuh.</p>
+  <button id="settingsBack" class="btn">Kembali</button>
+</div>
+
+<div id="mapScreen" class="screen">
+  <h1>🗺️ SOLMARINA</h1>
+  <canvas id="bigMap" width="900" height="620"></canvas>
+  <div class="mapHint">M / Esc — tutup peta</div>
 </div>
 
 <div id="shopMenu" class="screen">
@@ -255,6 +346,23 @@
   <div id="shopItems"></div>
   <div id="shopMsg"></div>
   <button id="shopCloseBtn" class="btn ghost">Tutup (Esc)</button>
+</div>
+
+<div id="phone">
+  <div id="phoneFrame">
+    <div id="phoneBar"><span id="phoneClock">08:00</span><span class="notch"></span><span>📶 🔋</span></div>
+    <div id="phoneApps">
+      <button class="appBtn" data-app="misi">📋<span>Misi</span></button>
+      <button class="appBtn" data-app="pesan">💬<span>Pesan</span><span id="pesanBadge"></span></button>
+      <button class="appBtn" data-app="kontak">👥<span>Kontak</span></button>
+      <button class="appBtn" data-app="statistik">📊<span>Statistik</span></button>
+    </div>
+    <div id="phoneScreen">
+      <div id="phoneHead"><button id="phoneBack">‹</button><div id="phoneAppTitle"></div><button id="phoneClose">✕</button></div>
+      <div id="phoneContent"></div>
+    </div>
+    <div id="phoneHint">T / Esc — tutup HP</div>
+  </div>
 </div>
 
 <script type="module" src="./src/main.js"></script>
