@@ -35,12 +35,12 @@ export function stageShot(name, api) {
     return true;
   }
   if (name === 'foot') {
-    // Beachfront: armed on the promenade, sand + umbrellas + ocean ahead.
+    // Beachfront: Val on the promenade, bat in hand (the starting melee
+    // weapon is the default equip), sand + umbrellas + ocean ahead.
     api.setDaylight(0.38);
-    api.grantWeapon('pistol');
-    api.equipWeapon('pistol');
+    api.setLead('val');
     api.teleport(30, 200, 0);
-    api.setCamera(21, 3.4, 187, 36, 1.0, 216);   // over the promenade: Dario, the sand strip, the sea
+    api.setCamera(21, 3.4, 187, 36, 1.0, 216);   // over the promenade: Val, the sand strip, the sea
     return true;
   }
   if (name === 'shop') {
@@ -62,22 +62,40 @@ export function stageShot(name, api) {
     return true;
   }
   if (name === 'duo') {
-    // DUO chapter 1 just started: switch campaigns (staging only, via the
-    // debug hook), then start 'Fresh Air' — the runner banners the chapter
-    // itself. Rafa waits by Val at the Coastal Correctional gate.
+    // The merged campaign at chapter 11: Dario's ten chapters marked done
+    // (staging only, via the debug hook), then 'Fresh Air' starts — the
+    // transition banner rolls and Rafa waits by Val at the prison gate.
     api.setDaylight(0.45);
-    window.__game.startCampaign('duo', true);
+    api.setDone(['sprint', 'package', 'drops', 'grandprix', 'tour', 'heat', 'dome', 'cashrun', 'revenge', 'king']);
     api.startMission('freshair');
     api.setCamera(-243, 4.5, 175, -224, 1.2, 161);   // from the coast road: the pair at the gate, city behind
     return true;
   }
   if (name === 'mission') {
-    // Chapter 1 just started: story banner up, first marker throbbing east.
+    // Chapter 11 banner: the merged campaign rolls into the duo arc — the
+    // transition banner over the prison-gate pickup, objective line reading
+    // "Chapter 11 — Fresh Air".
     api.setDaylight(0.55);
-    api.startMission('sprint');
-    api.teleport(24, 171, Math.PI / 2);
-    api.banner('Chapter 1 — Sunset Sprint', 'Lola sizes up the new arrival: "Fresh off the boat, huh? Show me you can run my waterfront."');
-    api.setCamera(13, 3.6, 159, 42, 2, 175);
+    api.setDone(['sprint', 'package', 'drops', 'grandprix', 'tour', 'heat', 'dome', 'cashrun', 'revenge', 'king']);
+    api.startMission('freshair');
+    api.banner('Chapter 11 — Fresh Air', 'Meanwhile, across the bay… Five years Val took the fall. Today the gate opens.');
+    api.setCamera(-243, 4.5, 175, -224, 1.2, 161);
+    return true;
+  }
+  if (name === 'heist') {
+    // Inside the Harbor Bank during the hostage step: chapters 1–16 marked
+    // done (staging), the prologue talk skipped, the player walked in —
+    // six hostages sit subdued, hands up, while the partner waits at the
+    // vault door.
+    api.setDaylight(0.85);
+    api.setDone(['sprint', 'package', 'drops', 'grandprix', 'tour', 'heat', 'dome', 'cashrun', 'revenge', 'king', 'freshair', 'firstscore', 'keys', 'hotcargo', 'fence', 'betrayal']);
+    api.startMission('kingdom');
+    window.__game.plus.skipDialogue();
+    api.teleport(100, 150, Math.PI);
+    // the runner advances talk → heist → 'enter' over the next frames;
+    // walk in once the door step is live (the capture waits seconds anyway)
+    setTimeout(() => { window.__game.plus.enterBank(); }, 1500);
+    api.setCamera(50, 2.7, 993, 66, 1.1, 1004);   // across the lobby: hostages, counter, vault door beyond
     return true;
   }
   return false;

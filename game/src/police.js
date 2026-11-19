@@ -195,28 +195,45 @@ export class PoliceSystem {
         cop.step(dt, { throttle, steer, handbrake: false }, ctx.world);
       } else {
         const d = dist2d(cop.x, cop.z, player.x, player.z);
+        // the endgame matters: a slow, stopped or wrecked suspect is taken
+        // ON FOOT — so the car must arrive measured, pull up alongside and
+        // STOP, not ram forever (Hugo's playtest complaint)
+        const playerSlow = !player.inCar || Math.abs(player.speed) < 2.5 || ctx.player.carDead;
         const lead = clamp(d / 34, 0, 0.95);
         const tx = player.x + player.vx * lead, tz = player.z + player.vz * lead;
         const wantHeading = Math.atan2(tx - cop.x, tz - cop.z);
         const steer = clamp(angleDelta(cop.heading, wantHeading) * 1.9, -1, 1);
         let throttle = 1;
         if (Math.abs(angleDelta(cop.heading, wantHeading)) > 0.9) throttle = 0.45;
-        if (d < 5 && player.speed < 3) throttle = 0.1;             // sit on a stopped suspect
-        if (u.reverse > 0) { u.reverse -= dt; throttle = -1; }
-        else if (Math.abs(cop.speed) < 0.6 && wanted > 0 && d > 12) {
-          u.stuck += dt;
-          if (u.stuck > 2.4) { u.reverse = 0.85; u.stuck = 0; }    // wedged: back out and retry
-        } else u.stuck = 0;
-        cop.step(dt, { throttle, steer, handbrake: false }, ctx.world);
+        if (u.reverse > 0) { u.reverse -= dt; throttle = -1; u.stopNear = false; }
+        else if (playerSlow && d < 15) {
+          if (d < 7.5) { throttle = 0; u.stopNear = true; }   // parked alongside: hold position
+          else throttle = Math.min(throttle, clamp((d - 6.5) / 7, 0.12, 0.55));
+        } else if (playerSlow) {
+          throttle = Math.min(throttle, clamp((d - 8) / 22, 0.3, 1));   // measured approach — no full-speed ram
+          u.stopNear = false;
+        } else if (d < 5) {
+          throttle = Math.min(throttle, 0.35);   // moving suspect: tag, don't smash forever
+          u.stopNear = false;
+        } else u.stopNear = false;
+        if (!u.stopNear && u.reverse <= 0) {
+          if (Math.abs(cop.speed) < 0.6 && wanted > 0 && d > 12) {
+            u.stuck += dt;
+            if (u.stuck > 2.4) { u.reverse = 0.85; u.stuck = 0; }    // wedged: back out and retry
+          } else u.stuck = 0;
+        }
+        cop.step(dt, { throttle, steer, handbrake: !!u.stopNear }, ctx.world);
       }
       // light bar strobes
       const phase = Math.sin(this.time * 11 + cop.x) > 0;
       u.lightL.material.emissiveIntensity = phase ? 3.2 : 0.15;
       u.lightR.material.emissiveIntensity = phase ? 0.15 : 3.2;
-      // --- crew deployment: out when stopped near an on-foot suspect, or wrecked
+      // --- crew deployment: out when the car is stopped near a suspect who
+      // is on foot, crawling, stopped or wrecked — the bust is made on foot
       if (wanted > 0 && cop.crew) {
         const dP = dist2d(cop.x, cop.z, player.x, player.z);
-        const shouldExit = cop.dead || (!player.inCar && Math.abs(cop.speed) < 1.5 && dP < 27);
+        const playerVulnerable = !player.inCar || Math.abs(player.speed) < 2.5 || ctx.player.carDead;
+        const shouldExit = cop.dead || (playerVulnerable && Math.abs(cop.speed) < 1.6 && dP < 30);
         if (shouldExit) {
           cop.crew.forEach((o, i) => {
             if (o.state === 'in') {

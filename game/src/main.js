@@ -1,18 +1,19 @@
 // KINGTIDE — main orchestration.
 // Owns the renderer, the player (on foot and at the wheel), wanted/search
-// bookkeeping, crimes, the safehouse + garage, saving, the camera, and the
-// per-frame wiring between city / traffic / peds / police / missions /
-// weapons / HUD / audio. Two campaigns share the world: Dario's ten chapters
-// and the DUO story of Val & Rafa. Exposes window.__game as a debug + test hook.
+// bookkeeping, crimes, the safehouse + garage, saving, the camera, the
+// in-game phone, and the per-frame wiring between city / traffic / peds /
+// police / missions / weapons / HUD / audio. ONE campaign: Dario's ten
+// chapters flow straight into the DUO story of Val & Rafa (chapters 11–17).
+// Exposes window.__game as a debug + test hook.
 import * as THREE from 'three';
-import { CITY, TUNING, PALETTE, ZONES, ZONE_NAMES, zoneAt, repRank, modelById, DUO_START_CASH } from './config.js';
+import { CITY, TUNING, PALETTE, ZONES, ZONE_NAMES, zoneAt, repRank, modelById } from './config.js';
 import { makeRng, clamp, dist2d, angleDelta, turnToward, pick, randRange } from './random.js';
-import { buildCity, buildLaneGraph, collideCircle } from './city.js';
+import { buildCity, buildLaneGraph, collideCircle, isOnRoad } from './city.js';
 import { Vehicle, TrafficSystem } from './cars.js';
 import { PedestrianSystem, makePerson, animatePerson } from './people.js';
 import { PoliceSystem } from './police.js';
-import { MissionRunner, MISSION_DEFS, DUO_DEFS } from './missions.js';
-import { WeaponSystem, WEAPON_DEFS, WEAPON_ORDER, defById as weaponDef } from './weapons.js';
+import { MissionRunner, MISSION_DEFS } from './missions.js';
+import { WeaponSystem, WEAPON_DEFS, WEAPON_ORDER, BAT_DEF, defById as weaponDef } from './weapons.js';
 import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
 import { stageShot } from './shots.js';
@@ -62,7 +63,7 @@ const extraVehicles = new Set();   // Rico's car, the stored garage car, mission
 // chapters read at a glance. setLead swaps the player figure in place.
 const LEADS = {
   dario: { label: 'DARIO VENN', outfit: null },
-  val: { label: 'VAL CRUZ', outfit: { shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
+  val: { label: 'VAL CRUZ', outfit: { female: true, shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
   rafa: { label: 'RAFA DUARTE', outfit: { shirt: 0x1f7a6d, pants: 0x3a3230, hair: 0x1c1710, skin: 0xa06a35 } },
 };
 let playerMesh = makePerson(makeRng(7));
@@ -83,12 +84,12 @@ function setLead(id) {
 const player = {
   x: CITY.spawn.x, z: CITY.spawn.z, heading: CITY.spawn.heading,
   vx: 0, vz: 0, speed: 0, health: 100, car: null, phase: 0,
+  vy: 0, yOff: 0, grounded: true, landBob: 0,   // jump state (Space on foot)
 };
 function freshSave() {
   return {
     cash: TUNING.startCash, done: [], house: false, stored: null,
-    armour: 0, rep: 0, weapons: null, campaign: 'dario',
-    duoCash: DUO_START_CASH, duoDone: [], flags: {},
+    armour: 0, rep: 0, weapons: null, flags: {}, messages: [],
   };
 }
 let S = freshSave();
@@ -98,28 +99,29 @@ let lastNearestCopD = 999;   // refreshed every frame; the missions' LOS checks 
 let lastSeenX = CITY.spawn.x, lastSeenZ = CITY.spawn.z;
 let bust = 0;
 let storedCar = null;
-let mode = 'menu';           // menu | play | pause | shop
+let mode = 'menu';           // menu | play | pause | shop | phone | map
 let started = false;
 let elapsed = 0;
+let currentObjective = '';   // last objective line (the phone's Misi app reads it)
 let unseenT = 0, hitTimer = 0, shoveCooldown = 0, hitRunCooldown = 0, hornTimer = 14, lastHurtT = -99;
+let trafficTopUpT = 2;
 let camYaw = player.heading + Math.PI, camPitch = 0.36, mouseQuiet = 0, shake = 0;
 const camTarget = new THREE.Vector3(player.x, 1.6, player.z);
 // PLUS state
 let wantedState = 'clear';   // clear | chase | search
 let search = null;           // { x, z, radius, timer, total }
 let episodePeak = 0;
-let shotHeatCd = 0, pedHitCd = 0, copHitCd = 0;
+let shotHeatCd = 0, pedHitCd = 0, copHitCd = 0, meleeCd = 0;
 let nitroMeter = 100, radioStation = 0, firing = false;
 let currentZone = 'downtown';
 let fenceCar = null;
 
-// campaign wallet / progress helpers
-const curCash = () => (S.campaign === 'duo' ? S.duoCash : S.cash);
-function setCurCash(n) { if (S.campaign === 'duo') S.duoCash = n; else S.cash = n; hud.setCash(n); }
-const curDone = () => (S.campaign === 'duo' ? S.duoDone : S.done);
-function campaignSpawn() {
-  if (S.house) return { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ };
-  return S.campaign === 'duo' ? { x: -215, z: 166 } : CITY.spawn;
+// ONE wallet, ONE progress list (round 2 merged the two campaigns)
+const curCash = () => S.cash;
+function setCurCash(n) { S.cash = n; hud.setCash(n); }
+const curDone = () => S.done;
+function spawnPoint() {
+  return S.house ? { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ } : { x: CITY.spawn.x, z: CITY.spawn.z };
 }
 
 function baseYAt(x, z) {
@@ -131,8 +133,9 @@ function allVehicles() {
   if (player.car && !list.includes(player.car)) list.push(player.car);
   return list;
 }
+const dynamicColliders = [];   // mission-owned walls (the bank interior) join the world while active
 function currentWorld() {
-  return { colliders: city.colliders.concat(police.extraColliders), vehicles: allVehicles(), pier: CITY.pier };
+  return { colliders: city.colliders.concat(police.extraColliders, dynamicColliders), vehicles: allVehicles(), pier: CITY.pier };
 }
 traffic.fill(TUNING.trafficCount, allVehicles());
 
@@ -161,8 +164,27 @@ function hurtPlayer(n) {
 }
 
 // ---------------------------------------------------------------- weapons
+/** The melee witness rule (Hugo's tuning, round 2): flooring a civilian
+ *  with the bat is a crime ONLY when seen. An officer or patrol car within
+ *  20 m → instant star. A civilian witness within 14 m → reported after
+ *  ~3 s ("warga melapor…"). Nobody around → no star, ever. A shove that
+ *  knocks nobody down is never a crime; walking into people is never one. */
+let pendingReport = null;
+function meleeWitnessCheck() {
+  let copD = police.officerThreatDist;
+  for (const c of police.cops) copD = Math.min(copD, dist2d(c.x, c.z, player.x, player.z));
+  if (copD < 20) { commitCrime(1); hud.toast('👮 Tertangkap basah! +1★'); return; }
+  for (const ped of peds.peds) {
+    if (ped.state !== 'down' && dist2d(ped.x, ped.z, player.x, player.z) < 14) {
+      if (!pendingReport) { pendingReport = { t: elapsed + 3 }; hud.toast('👀 Warga melihat itu…'); }
+      return;
+    }
+  }
+}
 function weaponCrime(n, kind) {
+  if (kind === 'meleeHit') { meleeWitnessCheck(); return; }
   if (kind === 'shotFired' || kind === 'explosion') {
+    missions.onNoise?.(kind);   // inside the bank, noise panics the hostages
     const hearR = kind === 'explosion' ? 85 : 58;
     // measure the hearing distance NOW, not from last frame's cache: a unit
     // that just rolled up must hear the very first shot, not the second one
@@ -182,6 +204,7 @@ function weaponCrime(n, kind) {
 }
 const weapons = new WeaponSystem(scene, {
   audio,
+  fxScale: () => (settings.quality === 'rendah' ? 0.4 : 1),
   banner: (t, s) => G.banner(t, s),
   crime: (n, kind) => weaponCrime(n, kind),
   hurtPlayer: (n) => hurtPlayer(n),
@@ -201,11 +224,12 @@ const weapons = new WeaponSystem(scene, {
       x: player.x, z: player.z, onFoot: !player.car,
       aimHeading: camYaw + Math.PI, aimPitch,
       vehicles: allVehicles(), peds: peds.peds, officers: police.officers,
-      thugs: activeMissions().active?.thugs || [],
+      thugs: missions.combatants(),
       heli: ht, colliders: currentWorld().colliders,
       hurtPed: (ped, dmg, fx, fz) => { peds.hurt(ped, dmg, fx, fz); peds.threaten(ped.x, ped.z, 0, 0, 9); },
+      knockPed: (ped) => { peds.knockDown(ped); peds.threaten(ped.x, ped.z, 0, 0, 6); },
       hurtOfficer: (o, dmg) => police.damageOfficer(o, dmg),
-      hurtThug: (t, dmg) => activeMissions().hurtThug(t, dmg),
+      hurtThug: (t, dmg) => missions.hurtCombatant(t, dmg),
       damageHeli: (dmg) => { if (police.damageHeli(dmg)) { hud.toast('🚁 HELIKOPTER JATUH!'); addRep(50, true); } },
     };
   },
@@ -231,6 +255,7 @@ const nearMarco = () => !player.car && dist2d(player.x, player.z, ZONES.dealer.x
 function save() {
   if (shotName) return;   // screenshot sessions never persist
   S.weapons = weapons.serialize();
+  S.messages = phone.messages;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch { /* storage unavailable */ }
 }
 function loadSave() {
@@ -244,13 +269,24 @@ function loadSave() {
 }
 function normalizeSave(data) {
   const base = freshSave();
-  return {
+  const out = {
     ...base, ...data,
-    done: data.done || [], duoDone: data.duoDone || [],
-    duoCash: typeof data.duoCash === 'number' ? data.duoCash : DUO_START_CASH,
+    done: Array.isArray(data.done) ? [...data.done] : [],
     armour: data.armour || 0, rep: data.rep || 0, flags: data.flags || {},
-    campaign: data.campaign === 'duo' ? 'duo' : 'dario',
+    messages: Array.isArray(data.messages) ? data.messages.slice(-40) : [],
   };
+  delete out.campaign; delete out.duoDone; delete out.duoCash;
+  // Round-2 migration (documented choice): weapons / REP / house / armour
+  // always carry over. An old save's separate DUO progress folds into the
+  // single campaign ONLY when Dario's ten chapters are all complete — the
+  // duo arc is chapters 11–17 now, so unfinished-Dario duo progress would
+  // be locked anyway; in that case it is dropped, everything else is kept.
+  const part1 = MISSION_DEFS.map((d) => d.id);
+  if (part1.every((id) => out.done.includes(id)) && Array.isArray(data.duoDone) && data.duoDone.length) {
+    for (const id of data.duoDone) if (!out.done.includes(id)) out.done.push(id);
+    if (typeof data.duoCash === 'number') out.cash = data.duoCash;
+  }
+  return out;
 }
 function applyHouseVisual() {
   const col = S.house ? 0x2fe8c8 : 0xffc93c;
@@ -268,6 +304,7 @@ function spawnStoredCar() {
 function placePlayer(x, z, heading) {
   player.x = x; player.z = z; player.heading = heading;
   player.vx = 0; player.vz = 0; player.speed = 0;
+  player.vy = 0; player.yOff = 0; player.grounded = true; player.landBob = 0;
   camYaw = heading + Math.PI;
   camTarget.set(x, 1.6, z);
 }
@@ -281,7 +318,7 @@ const G = {
   cash: () => curCash(),
   addCash(n) { setCurCash(curCash() + n); audio.cash(); save(); },
   banner: (t, s) => { hud.banner(t, s); document.getElementById('status').textContent = t + (s ? ' — ' + s : ''); },
-  objective: (t) => hud.objective(t),
+  objective: (t) => { currentObjective = t; hud.objective(t); },
   setWantedMin(n) { if (wanted < n) { wanted = n; lastSeenX = player.x; lastSeenZ = player.z; } },
   addHeat(n) { wanted = clamp(wanted + n, 0, 5); unseenT = 0; },
   wantedLevel: () => wanted,
@@ -301,31 +338,38 @@ const G = {
     if (fenceCar !== player.car) fenceCar = null;
   },
   stageHook: (hook, runner) => stageHook(hook, runner),
+  // round 2: phone story beats + the fence switch + bank plumbing
+  onChapterStart: (def) => pushChapterMessage(def),
+  onBeat: (beat) => {
+    const partner = currentLead === 'rafa' ? 'Val' : 'Rafa';
+    if (beat === 'drill') pushMessage(partner, 'Bor sudah makan pintu brankas. Tahan lobinya — jangan biarkan mereka panik.');
+    if (beat === 'vault') pushMessage(partner, 'Brankas TERBUKA! Ambil tiga tasnya — aku menyusul keluar.');
+  },
+  onFenceSwitch: () => {
+    setLead('val');
+    if (player.car) exitCarInternal();
+    if (fenceCar) placePlayer(fenceCar.x + 2.4, fenceCar.z, fenceCar.heading);
+    G.banner('VAL — your turn', 'Rafa: "Keys are in. Drive, Val — DRIVE!"');
+  },
+  movePlayer: (x, z, heading) => { if (player.car) exitCarInternal(); placePlayer(x, z, heading); },
+  addDynCollider: (c) => { dynamicColliders.push(c); },
+  removeDynCollider: (c) => { const i = dynamicColliders.indexOf(c); if (i >= 0) dynamicColliders.splice(i, 1); },
+  fxSpark: (x, y, z) => weapons.sparks(x, y, z, 0xffc46b, 3, 0.4),
 };
-function markDone(listName) {
-  return (id) => {
-    if (!S[listName].includes(id)) { S[listName].push(id); addRep(TUNING.repPerChapter, true); save(); }
-  };
+function markDone(id) {
+  if (!S.done.includes(id)) { S.done.push(id); addRep(TUNING.repPerChapter, true); save(); }
+}
+function markDoneNoRep(id) {
+  if (!S.done.includes(id)) { S.done.push(id); save(); }
 }
 const missions = new MissionRunner(scene, {
   ...G,
   isMissionDone: (id) => S.done.includes(id),
-  markMissionDone: markDone('done'),
+  markMissionDone: markDone,
+  markMissionDoneNoRep: markDoneNoRep,
 });
-const duoMissions = new MissionRunner(scene, {
-  ...G,
-  isMissionDone: (id) => S.duoDone.includes(id),
-  markMissionDone: markDone('duoDone'),
-}, DUO_DEFS);
-missions.enabled = true;
-duoMissions.enabled = false;
-function activeMissions() { return S.campaign === 'duo' ? duoMissions : missions; }
-function refreshAllMarkers() {
-  missions.enabled = S.campaign === 'dario';
-  duoMissions.enabled = S.campaign === 'duo';
-  missions.refreshMarkers();
-  duoMissions.refreshMarkers();
-}
+function activeMissions() { return missions; }
+function refreshAllMarkers() { missions.refreshMarkers(); }
 
 /** Story beats that live outside the stage machinery (DUO hooks). */
 function stageHook(hook, runner) {
@@ -347,18 +391,6 @@ function stageHook(hook, runner) {
     G.banner('Out of the net', 'The pin is off — now go dark by the lighthouse.');
   }
 }
-// the fence chapter's fight stage ends in the mid-mission lead switch
-const _fenceCheck = setInterval(() => {
-  if (mode !== 'play') return;
-  const a = duoMissions.active;
-  if (a?.def.id === 'fence' && a.stage === 2 && !a.switched) {
-    a.switched = true;
-    setLead('val');
-    if (player.car) exitCarInternal();
-    if (fenceCar) placePlayer(fenceCar.x + 2.4, fenceCar.z, fenceCar.heading);
-    G.banner('VAL — your turn', 'Rafa: "Keys are in. Drive, Val — DRIVE!"');
-  }
-}, 400);
 
 // ---------------------------------------------------------------- crimes + consequences
 function commitCrime(stars) {
@@ -428,58 +460,49 @@ function wasted() {
 function clearWorldForStart() {
   if (player.car) { player.car.driver = 'parked'; player.car = null; playerMesh.visible = true; }
   if (storedCar) { extraVehicles.delete(storedCar); storedCar.dispose(scene); storedCar = null; }
-  for (const r of [missions, duoMissions]) {
-    if (r.active?.rico) G.removeVehicle(r.active.rico);
-    if (r.active) r.cleanupActive();
-    r.active = null;
-  }
+  if (missions.active?.rico) G.removeVehicle(missions.active.rico);
+  if (missions.active) missions.cleanupActive();
+  missions.active = null;
   firing = false;
   if (wheelOpen) closeWheel();
+  if (phone.open) closePhone();
 }
-function resetCampaign(name) {
-  if (name === 'dario') {
-    const keep = { campaign: 'dario' };
-    S = { ...freshSave(), ...keep };
-    weapons.reset();
-  } else {
-    S.duoCash = DUO_START_CASH; S.duoDone = [];
-    S.campaign = 'duo';
-  }
-}
-function startCampaign(name, fresh) {
+function startGame(fresh) {
   clearWorldForStart();
-  if (fresh) resetCampaign(name);
-  else {
+  if (fresh) {
+    S = freshSave();
+    weapons.reset();
+    phone.messages = []; phone.unread = 0;
+  } else {
     const data = loadSave();
     if (data) S = normalizeSave(data);
-    S.campaign = name;
-    if (name === 'dario' && !data) resetCampaign('dario');
+    else { S = freshSave(); weapons.reset(); }
+    phone.messages = Array.isArray(S.messages) ? S.messages : [];
+    phone.unread = 0;
   }
   weapons.restore(S.weapons);
-  wanted = 0; pinnedWanted = null; bust = 0; episodePeak = 0; search = null; wantedState = 'clear';
+  wanted = 0; pinnedWanted = null; bust = 0; episodePeak = 0; search = null; wantedState = 'clear'; pendingReport = null;
   player.health = 100; nitroMeter = 100; radioStation = 0;
   applyHouseVisual();
   spawnStoredCar();
   refreshAllMarkers();
-  setLead(name === 'duo' ? 'rafa' : 'dario');
-  currentLead = name === 'duo' ? 'rafa' : 'dario';
-  hud.setLead(LEADS[currentLead].label);
-  const sp = campaignSpawn();
+  setLead('dario');
+  currentLead = 'dario';
+  hud.setLead(LEADS.dario.label);
+  const sp = spawnPoint();
   placePlayer(sp.x, sp.z, CITY.spawn.heading);
-  hud.setCash(curCash());
+  hud.setCash(S.cash);
   hud.setRep(S.rep, repRank(S.rep));
   started = true;
   mode = 'play';
   document.getElementById('startScreen').style.display = 'none';
   document.getElementById('hud').classList.add('on');
   if (!shotName) lockPointer();
-  if (name === 'duo') G.banner('KINGTIDE: DUO', 'Val walks out of Coastal Correctional today. Rafa is waiting at the gate.');
-  else G.banner('KINGTIDE', 'Dario Venn washes up in Solmarina with $250 and a record.');
+  G.banner('KINGTIDE', 'Dario Venn washes up in Solmarina with $250 and a record. One city, one story — 17 chapters.');
   save();
 }
-function newGame() { startCampaign(S.campaign, true); }
-function continueGame() { startCampaign(S.campaign, false); }
-function startGame(fresh) { startCampaign('dario', fresh); }
+function newGame() { startGame(true); }
+function continueGame() { startGame(false); }
 
 // ---------------------------------------------------------------- Marco's shop
 const shopEl = document.getElementById('shopMenu');
@@ -523,7 +546,7 @@ function buyWeapon(id) {
   setCurCash(curCash() - def.price);
   const first = weapons.grant(id, true);
   weapons.equip(id);
-  if (first && !S.flags.firstWeapon) { S.flags.firstWeapon = true; addRep(TUNING.repFirstWeapon, true); }
+  if (first && !S.flags.firstWeapon) { S.flags.firstWeapon = true; addRep(TUNING.repFirstWeapon, true); pushMessage('Marco', 'Senjata bagus untuk tangan yang benar. Ammo selalu ada di tempatku.'); }
   shopMsg(`${def.name} jadi milikmu. Tekan Q untuk memilihnya.`);
   audio.cash();
   save(); renderShop();
@@ -561,13 +584,174 @@ function closeShop() {
 }
 document.getElementById('shopCloseBtn').addEventListener('click', closeShop);
 
+// ---------------------------------------------------------------- the phone (T)
+// A GTA-style smartphone: Misi (live objective + the heist checklist),
+// Pesan (story texts), Kontak (the cast), Statistik (cash / REP / progress).
+const phone = { open: false, app: null, messages: [], unread: 0 };
+const phoneEl = document.getElementById('phone');
+const phoneAppsEl = document.getElementById('phoneApps');
+const phoneScreenEl = document.getElementById('phoneScreen');
+const phoneContentEl = document.getElementById('phoneContent');
+const phoneTitleEl = document.getElementById('phoneAppTitle');
+const phoneClockEl = document.getElementById('phoneClock');
+function phoneClockText() {
+  const mins = 480 + Math.floor(elapsed * 0.1);   // 08:00 + 1 min per 10 s played
+  return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+function updatePhoneBadge() {
+  const b = document.getElementById('pesanBadge');
+  if (b) { b.textContent = phone.unread > 0 ? String(phone.unread) : ''; b.style.display = phone.unread > 0 ? '' : 'none'; }
+}
+function pushMessage(from, text) {
+  phone.messages.push({ from, text, t: Math.floor(elapsed) });
+  if (phone.messages.length > 40) phone.messages.splice(0, phone.messages.length - 40);
+  S.messages = phone.messages;
+  if (!phone.open) { phone.unread++; hud.toast(`📱 Pesan baru dari ${from}`); }
+  updatePhoneBadge();
+  save();
+}
+const CHAPTER_MESSAGES = {
+  sprint: ['Lola', 'Pendatang baru? Tunjukkan kakimu di promenade-ku. — L'],
+  package: ['Sal', 'Satu paket. Tanpa pertanyaan. Jangan bikin PD bertanya juga.'],
+  drops: ['Sal', 'Tiga drop, satu jam. Kapal tidak menunggu siapa pun.'],
+  grandprix: ['Rico', 'Balapan untuk reputasi, wheelman. Jangan bikin aku bosan.'],
+  tour: ['Sal', 'Kelilingi kotaku dalam satu tangki siang. Lalu kita bicara bisnis.'],
+  heat: ['Sal', 'Pengambilan berantakan. Hilangkan panasnya, jangan bawa ke pintuku.'],
+  dome: ['Sal', 'Ada Velocity RS di parkiran Dome atas namaku. Bawa ke barat. Utuh.'],
+  cashrun: ['Sal', 'Uangku berserakan di lima titik. Tangan diam, mesin kencang.'],
+  revenge: ['Rico', 'Mahkotamu atau mahkotaku. Jalan jauh — dan aku main kotor.'],
+  king: ['Sal', 'Satu pekerjaan terakhir, nak. Percayalah padaku kali ini.'],
+  freshair: ['Rafa', 'Val bebas hari ini. Lima tahun dia menunggu — aku juga.'],
+  firstscore: ['Val', 'Penjara mengajarku sabar, bukan miskin. Kotak kas marina. Malam ini.'],
+  keys: ['Rafa', 'Pembeli di seberang teluk bayar tunai. Satu Azure GT, tidur di Dome.'],
+  hotcargo: ['Val', 'Truk kas, rute sepi, satu koper. Hentikan, ambil, lenyap.'],
+  fence: ['Rafa', 'Otto membeli kertas panas di antara kontainer. Aku percaya dia. Sekali ini.'],
+  betrayal: ['Val', 'Otto menjual rute kita. Sirene di semua jalan — ke mercusuar.'],
+  kingdom: ['Val', 'Bank Pelabuhan, malam festival. Satu aturan: tidak ada yang terluka.'],
+};
+function pushChapterMessage(def) {
+  const m = CHAPTER_MESSAGES[def.id];
+  if (m) pushMessage(m[0], m[1]);
+}
+function misiData() {
+  const lines = [];
+  let title;
+  const next = missions.nextChapter();
+  if (missions.active) {
+    title = missions.chapterTag(missions.active.def);
+    const steps = missions.heistSteps();
+    if (steps) for (const s of steps) lines.push(`${s.state === 'done' ? '✓' : s.state === 'active' ? '▶' : '·'} ${s.label}`);
+    else lines.push(`▶ ${currentObjective || missions.active.def.intro}`);
+  } else if (next) {
+    title = `Selanjutnya: ${missions.chapterTag(next)}`;
+    lines.push(`· Pergi ke penanda kuning untuk memulai — ${next.giver}`);
+  } else {
+    title = 'Semua 17 bab selesai 👑';
+    lines.push('· Solmarina milikmu. Jelajahi kota sesukamu.');
+  }
+  return { title, lines };
+}
+function kontakData() {
+  return [
+    ['Dario Venn', S.done.includes('king') ? '👑 King of Solmarina' : currentLead === 'dario' ? 'Kamu — sedang dimainkan' : 'Di Palm Row'],
+    ['Val Cruz', currentLead === 'val' ? 'Kamu — sedang dimainkan' : S.done.includes('freshair') ? 'Partner — siap untuk pekerjaan terakhir' : 'Masih di Coastal Correctional'],
+    ['Rafa Duarte', currentLead === 'rafa' ? 'Kamu — sedang dimainkan' : 'Partner Val — selalu menunggu'],
+    ['Lola Marchetti', 'Lola\'s Quay — perahu selalu siap'],
+    ['Uncle Sal', S.done.includes('king') ? 'Kekaisarannya runtuh — menghilang' : 'Fixer pelabuhan — pemberi kerja'],
+    ['Rico Delgado', S.done.includes('revenge') ? 'Sudah kalah dua kali' : 'Raja jalanan — rival balap'],
+    ['Marco', 'Gang Harbor Industrial — senjata & armour'],
+  ].map(([n, s]) => `${n} — ${s}`);
+}
+function statistikData() {
+  const owned = WEAPON_ORDER.filter((id) => weapons.state[id].owned).length;
+  return [
+    `💵 Uang: $${S.cash.toLocaleString()}`,
+    `⭐ REP: ${S.rep.toLocaleString()} — ${repRank(S.rep)}`,
+    `📖 Bab selesai: ${S.done.length}/17`,
+    `🔫 Senjata dimiliki: ${owned + 1}/6 (termasuk Bat)`,
+    `🛡️ Armour: ${Math.round(S.armour)}/100`,
+    `🏠 Safehouse Palm Row: ${S.house ? 'dimiliki' : 'belum dibeli ($2,500)'}`,
+  ];
+}
+function openPhone() {
+  if (mode !== 'play') return;
+  phone.open = true; phone.app = null;
+  mode = 'phone';
+  suppressLockPauseUntil = performance.now() + 2000;   // same lock-pause guard as the shop
+  phoneEl.classList.add('open');
+  phoneClockEl.textContent = phoneClockText();
+  showPhoneHome();
+  if (document.pointerLockElement) document.exitPointerLock();
+  audio.blip(880);
+}
+function closePhone() {
+  phone.open = false; phone.app = null;
+  phoneEl.classList.remove('open');
+  mode = 'play';
+  if (!shotName) lockPointer();
+}
+function showPhoneHome() {
+  phone.app = null;
+  phoneAppsEl.style.display = '';
+  phoneScreenEl.style.display = 'none';
+  updatePhoneBadge();
+}
+function phoneLine(text, cls = 'phLine') {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  phoneContentEl.appendChild(d);
+}
+function showPhoneApp(app) {
+  phone.app = app;
+  phoneAppsEl.style.display = 'none';
+  phoneScreenEl.style.display = '';
+  phoneClockEl.textContent = phoneClockText();
+  phoneContentEl.innerHTML = '';
+  if (app === 'misi') {
+    phoneTitleEl.textContent = '📋 Misi';
+    const d = misiData();
+    phoneLine(d.title, 'phH');
+    for (const ln of d.lines) phoneLine(ln);
+  } else if (app === 'pesan') {
+    phoneTitleEl.textContent = '💬 Pesan';
+    phone.unread = 0; updatePhoneBadge();
+    if (!phone.messages.length) phoneLine('Belum ada pesan.');
+    for (const m of [...phone.messages].reverse()) {
+      const wrap = document.createElement('div');
+      wrap.className = 'phMsg';
+      const f = document.createElement('div'); f.className = 'phFrom'; f.textContent = m.from;
+      const t = document.createElement('div'); t.className = 'phText'; t.textContent = m.text;
+      wrap.appendChild(f); wrap.appendChild(t); phoneContentEl.appendChild(wrap);
+    }
+  } else if (app === 'kontak') {
+    phoneTitleEl.textContent = '👥 Kontak';
+    for (const ln of kontakData()) phoneLine(ln);
+  } else if (app === 'statistik') {
+    phoneTitleEl.textContent = '📊 Statistik';
+    for (const ln of statistikData()) phoneLine(ln);
+  }
+}
+function phoneView() {
+  if (!phone.open) return { open: false, app: null, lines: [] };
+  if (!phone.app) return { open: true, app: null, lines: [] };
+  if (phone.app === 'misi') { const d = misiData(); return { open: true, app: 'misi', title: d.title, lines: d.lines }; }
+  if (phone.app === 'pesan') return { open: true, app: 'pesan', lines: phone.messages.map((m) => `${m.from}: ${m.text}`) };
+  if (phone.app === 'kontak') return { open: true, app: 'kontak', lines: kontakData() };
+  return { open: true, app: 'statistik', lines: statistikData() };
+}
+for (const b of phoneAppsEl.querySelectorAll('[data-app]')) b.addEventListener('click', () => showPhoneApp(b.dataset.app));
+document.getElementById('phoneBack').addEventListener('click', showPhoneHome);
+document.getElementById('phoneClose').addEventListener('click', closePhone);
+
 // ---------------------------------------------------------------- the weapon wheel
-const WHEEL_SLOTS = [null, 'pistol', 'smg', 'shotgun', 'rifle', 'rpg'];
+// ------------------------------------------------------------- INPUT: weapon wheel + keys
+const WHEEL_SLOTS = ['bat', 'pistol', 'smg', 'shotgun', 'rifle', 'rpg'];
 let wheelOpen = false, wheelSel = 0;
 const wheelCursor = { x: 0, y: 0 };
 function wheelSlotsData() {
-  return WHEEL_SLOTS.map((id) => id === null
-    ? { label: 'UNARMED', sub: 'FISTS', owned: true, ammo: '', current: weapons.current === null }
+  return WHEEL_SLOTS.map((id) => id === 'bat'
+    ? { label: 'BAT', sub: 'MELEE', owned: true, ammo: '', current: weapons.current === 'bat' }
     : {
       label: weaponDef(id).name.toUpperCase(), sub: weaponDef(id).cls,
       owned: weapons.state[id].owned,
@@ -599,8 +783,105 @@ function closeWheel() {
   wheelOpen = false;
   hud.hideWheel();
   const id = WHEEL_SLOTS[wheelSel];
-  if (id === null) weapons.equip(null);
+  if (id === 'bat') { weapons.equip('bat'); audio.blip(660); }
   else if (weapons.state[id].owned) { weapons.equip(id); audio.blip(660); }
+}
+
+// ------------------------------------------------------------- SETTINGS (Pengaturan)
+const SETTINGS_KEY = 'kingtide.settings.v1';
+const settings = (() => {
+  const dflt = { quality: 'sedang', master: 0.9, music: 0.8, sfx: 1, mute: false, sens: 1 };
+  try { return { ...dflt, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return dflt; }
+})();
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* private mode */ } }
+const settingsEls = {
+  menu: document.getElementById('settingsMenu'),
+  master: document.getElementById('setMaster'), music: document.getElementById('setMusic'),
+  sfx: document.getElementById('setSfx'), mute: document.getElementById('setMute'),
+  sens: document.getElementById('setSens'),
+};
+function updateSettingsUI() {
+  if (!settingsEls.master) return;
+  settingsEls.master.value = Math.round(settings.master * 100);
+  settingsEls.music.value = Math.round(settings.music * 100);
+  settingsEls.sfx.value = Math.round(settings.sfx * 100);
+  settingsEls.mute.checked = !!settings.mute;
+  settingsEls.sens.value = Math.round(settings.sens * 100);
+  document.querySelectorAll('#qualitySeg button').forEach((b) => b.classList.toggle('active', b.dataset.q === settings.quality));
+}
+/** Apply live: pixel-ratio cap + shadows + shadow size (graphics), the
+ *  audio buses (sound), mouse sensitivity (read directly by the handler). */
+function applySettings() {
+  const q = settings.quality;
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q === 'rendah' ? 1 : q === 'sedang' ? 1.5 : 2));
+  const wantShadow = q !== 'rendah';
+  if (renderer.shadowMap.enabled !== wantShadow) {
+    renderer.shadowMap.enabled = wantShadow;
+    scene.traverse((o) => {
+      const ms = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      for (const m of ms) m.needsUpdate = true;
+    });
+  }
+  if (wantShadow && city.sun) {
+    const size = q === 'sedang' ? 1024 : 2048;
+    if (city.sun.shadow.mapSize.x !== size) {
+      city.sun.shadow.mapSize.set(size, size);
+      if (city.sun.shadow.map) { city.sun.shadow.map.dispose(); city.sun.shadow.map = null; }
+    }
+  }
+  audio.setVolumes(settings);
+  updateSettingsUI();
+}
+let settingsFrom = 'title';
+function openSettings(from) {
+  settingsFrom = from;
+  settingsEls.menu.classList.add('open');
+  updateSettingsUI();
+}
+function closeSettings() { settingsEls.menu.classList.remove('open'); }
+document.getElementById('settingsBtn').addEventListener('click', () => openSettings('title'));
+document.getElementById('settingsBtn2').addEventListener('click', () => openSettings('pause'));
+document.getElementById('settingsBack').addEventListener('click', closeSettings);
+document.querySelectorAll('#qualitySeg button').forEach((b) => b.addEventListener('click', () => { settings.quality = b.dataset.q; applySettings(); saveSettings(); }));
+settingsEls.master.addEventListener('input', () => { settings.master = settingsEls.master.value / 100; applySettings(); saveSettings(); });
+settingsEls.music.addEventListener('input', () => { settings.music = settingsEls.music.value / 100; applySettings(); saveSettings(); });
+settingsEls.sfx.addEventListener('input', () => { settings.sfx = settingsEls.sfx.value / 100; applySettings(); saveSettings(); });
+settingsEls.mute.addEventListener('change', () => { settings.mute = settingsEls.mute.checked; applySettings(); saveSettings(); });
+settingsEls.sens.addEventListener('input', () => { settings.sens = settingsEls.sens.value / 100; applySettings(); saveSettings(); });
+applySettings();
+
+// ------------------------------------------------------------- FULL MAP (M)
+let mapOpen = false, lastMapView = null;
+const MAP_PLACES = [
+  { x: ZONES.dealer.x, z: ZONES.dealer.z, icon: '🛠️', label: 'Marco' },
+  { x: 100, z: 150, icon: '🏦', label: 'Bank' },
+  { x: 190, z: 250, icon: '⚓', label: 'Marina' },
+  { x: -234, z: 158, icon: '🔒', label: 'Penjara' },
+  { x: 190, z: 306, icon: '🗼', label: 'Mercusuar' },
+  { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, icon: '🏠', label: 'Safehouse' },
+  { x: 160, z: -120, icon: '🏟️', label: 'Dome' },
+];
+function refreshMap() {
+  lastMapView = hud.drawBigMap(document.getElementById('bigMap'), {
+    player: { x: player.x, z: player.z, heading: player.heading },
+    target: missions.target(),
+    places: MAP_PLACES,
+  });
+}
+function openMap() {
+  if (mode !== 'play') return;
+  mode = 'map'; mapOpen = true;
+  document.getElementById('mapScreen').classList.add('open');
+  suppressLockPauseUntil = performance.now() + 2000;
+  if (document.pointerLockElement) document.exitPointerLock();
+  refreshMap();
+  audio.blip(760);
+}
+function closeMap() {
+  mapOpen = false;
+  document.getElementById('mapScreen').classList.remove('open');
+  mode = 'play';
+  if (!shotName) lockPointer();
 }
 
 // ---------------------------------------------------------------- input
@@ -608,6 +889,14 @@ const keys = {};
 let mouseDown = false;
 function handleKey(code, down) {
   keys[code] = down;
+  if (down && mode === 'phone') {
+    if (code === 'Escape' || code === 'KeyT') closePhone();
+    return;
+  }
+  if (down && mode === 'map') {
+    if (code === 'Escape' || code === 'KeyM') closeMap();
+    return;
+  }
   if (down && mode === 'shop') {
     if (code === 'Escape' || code === 'KeyF') closeShop();
     return;
@@ -618,6 +907,8 @@ function handleKey(code, down) {
     return;
   }
   if (mode !== 'play') return;
+  if (code === 'KeyT') { openPhone(); return; }
+  if (code === 'KeyM') { openMap(); return; }
   if (code === 'KeyE') toggleCar();
   if (code === 'KeyF') interact();
   if (code === 'KeyH' && player.car) audio.horn();
@@ -629,8 +920,8 @@ function handleKey(code, down) {
   }
   if (code === 'Tab' && !player.car) { weapons.cycle(1); }
   if (code === 'KeyQ' && !player.car) openWheel();
-  const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(code);
-  if (digit >= 0 && !player.car) weapons.equip(WEAPON_ORDER[digit]);
+  const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(code);
+  if (digit >= 0 && !player.car) { const id = WHEEL_SLOTS[digit]; if (id === 'bat' || weapons.state[id].owned) weapons.equip(id); }
 }
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
@@ -642,7 +933,9 @@ addEventListener('wheel', (e) => {
 });
 addEventListener('mousedown', (e) => {
   if (mode !== 'play' || e.button !== 0) return;
-  if (document.pointerLockElement === canvas) {
+  // the click that engages pointer lock must never attack: only clicks made
+  // while the lock has been held for a beat count as attacks
+  if (document.pointerLockElement === canvas && performance.now() - lockedAt > 200) {
     if (weapons.current && !player.car) firing = true;
     else shove();
   } else mouseDown = true;
@@ -652,8 +945,8 @@ addEventListener('mousemove', (e) => {
   if (mode !== 'play') return;
   if (wheelOpen) { wheelMove(e.movementX || 0, e.movementY || 0); return; }
   if (document.pointerLockElement === canvas || mouseDown) {
-    camYaw -= e.movementX * 0.0028;
-    camPitch = clamp(camPitch + e.movementY * 0.0028, 0.05, 1.2);
+    camYaw -= e.movementX * 0.0028 * settings.sens;
+    camPitch = clamp(camPitch + e.movementY * 0.0028 * settings.sens, 0.05, 1.2);
     mouseQuiet = 0;
   }
 });
@@ -669,7 +962,9 @@ canvas.addEventListener('click', () => {
   }
 });
 let suppressLockPauseUntil = 0;
+let lockedAt = 0;   // when the pointer lock engaged (attack-click guard)
 document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === canvas) lockedAt = performance.now();
   if (!document.pointerLockElement && mode === 'play' && started && !shotName && performance.now() > suppressLockPauseUntil) togglePause(true);
 });
 function togglePause(force) {
@@ -681,9 +976,8 @@ function togglePause(force) {
 document.getElementById('resumeBtn').addEventListener('click', () => togglePause(false));
 document.getElementById('restartBtn').addEventListener('click', () => { newGame(); togglePause(false); });
 document.getElementById('daySlider').addEventListener('input', (e) => city.setDaylight(e.target.value / 100));
-document.getElementById('newGameBtn').addEventListener('click', () => { audio.ensure(); startCampaign('dario', !loadSave()); });
-document.getElementById('duoBtn').addEventListener('click', () => { audio.ensure(); const sv = loadSave(); startCampaign('duo', !sv || (sv.duoDone.length === 0 && sv.duoCash === DUO_START_CASH)); });
-document.getElementById('continueBtn').addEventListener('click', () => { audio.ensure(); startCampaign(loadSave()?.campaign || 'dario', false); });
+document.getElementById('newGameBtn').addEventListener('click', () => { audio.ensure(); startGame(!loadSave()); });
+document.getElementById('continueBtn').addEventListener('click', () => { audio.ensure(); startGame(false); });
 if (loadSave()) document.getElementById('continueBtn').style.display = '';
 
 // ---------------------------------------------------------------- interactions
@@ -705,6 +999,12 @@ function toggleCar() {
 function interact() {
   audio.ensure();
   const runner = activeMissions();
+  // runner-owned F interactions first: the heist talk, then the bank doors
+  if (runner.dialogueActive()) { runner.advanceDialogue(); audio.blip(700); return; }
+  const aStage = runner.active?.def.stages[runner.active.stage];
+  if (runner.active && aStage?.type === 'talk' && !runner.active.talkDone
+    && dist2d(player.x, player.z, aStage.x, aStage.z) < aStage.r + 1) { runner.startDialogue(); return; }
+  if (runner.heistInteract()) return;
   const def = runner.nearStart();
   if (def) { if (runner.start(def)) audio.blip(740); return; }
   const SH = CITY.safehouse;
@@ -714,6 +1014,7 @@ function interact() {
       S.house = true; applyHouseVisual(); spawnStoredCar();
       audio.cash();
       G.banner('Safehouse purchased', 'The villa on Palm Row is yours. Store cars in the garage.');
+      pushMessage('Lola', 'Vila Palm Row, ya? Tetangga baru. Mampir ke quay-ku kapan-kapan.');
       save();
     } else {
       G.banner('Safehouse — $2,500', `You need $${(TUNING.housePrice - curCash()).toLocaleString()} more. Run some jobs.`);
@@ -735,8 +1036,8 @@ function shove() {
     if (d < bestD && Math.abs(angleDelta(player.heading, Math.atan2(ped.x - player.x, ped.z - player.z))) < 0.9) { bestD = d; best = ped; }
   }
   if (best) {
+    // a shove that knocks nobody down is never a crime (Hugo's rule)
     peds.threaten(best.x, best.z, player.vx, player.vz, 2.2);
-    commitCrime(1);
     shoveCooldown = 1.2;
     audio.blip(170);
     return;
@@ -754,6 +1055,8 @@ function updatePrompt() {
   }
   const def = activeMissions().nearStart();
   if (def) { hud.prompt(`F — start Chapter ${def.chapter}: ${def.name} (+$${def.reward.toLocaleString()})`); return; }
+  const rp = activeMissions().promptText();
+  if (rp) { hud.prompt(rp); return; }
   const SH = CITY.safehouse;
   if (!S.house && dist2d(player.x, player.z, SH.buyX, SH.buyZ) < 5.5) {
     hud.prompt(curCash() >= TUNING.housePrice ? 'F — buy the safehouse ($2,500)' : `Safehouse: $2,500 — you need $${(TUNING.housePrice - curCash()).toLocaleString()} more`);
@@ -798,7 +1101,21 @@ function updateFoot(dt) {
   }
   if (weapons.current && firing) player.heading = turnToward(player.heading, camYaw + Math.PI, dt * 16);   // face the aim while shooting
   player.speed = Math.hypot(player.vx, player.vz);
-  playerMesh.position.set(player.x, baseYAt(player.x, player.z), player.z);
+  // jump: Space on foot (in a car Space stays the handbrake) — vertical
+  // velocity + gravity, a soft landing dip, and it never touches the
+  // bust/wasted/mission logic, which all reads ground-plane state
+  if (keys.Space && player.grounded) { player.vy = 8.4; player.grounded = false; audio.blip(300); }
+  if (!player.grounded) {
+    player.vy -= 22 * dt;
+    player.yOff += player.vy * dt;
+    if (player.yOff <= 0) {
+      player.yOff = 0; player.vy = 0; player.grounded = true; player.landBob = 0.14;
+      audio.blip(140);
+    }
+  }
+  player.landBob = Math.max(0, (player.landBob || 0) - dt);
+  const bobY = player.landBob > 0 ? -0.09 * (player.landBob / 0.14) : 0;
+  playerMesh.position.set(player.x, baseYAt(player.x, player.z) + player.yOff + bobY, player.z);
   playerMesh.rotation.y = player.heading;
 }
 function updateCar(dt) {
@@ -841,12 +1158,29 @@ function updateCar(dt) {
 function updateWorld(dt) {
   elapsed += dt;
   hitTimer -= dt; shoveCooldown -= dt; hitRunCooldown -= dt; hornTimer -= dt; mouseQuiet += dt;
-  shotHeatCd -= dt; pedHitCd -= dt; copHitCd -= dt;
+  shotHeatCd -= dt; pedHitCd -= dt; copHitCd -= dt; meleeCd -= dt;
+  // a civilian witness's report lands ~3 s after a witnessed bat knockdown
+  if (pendingReport && elapsed >= pendingReport.t) {
+    pendingReport = null;
+    commitCrime(1);
+    hud.toast('📱 Warga melapor ke Harbor PD… +1★');
+  }
   const world = currentWorld();
   traffic.update(dt, world);
+  // fleet maintenance: traffic cars despawn at the graph exits, so top the
+  // fleet back up every couple of seconds — without this the streets
+  // slowly empty out over a long session (found by the round-2 playtest:
+  // 24 cars at boot, 6 left after ~25 minutes)
+  trafficTopUpT -= dt;
+  if (trafficTopUpT <= 0) { trafficTopUpT = 2; traffic.fill(TUNING.trafficCount, world.vehicles); }
   peds.update(dt);
   if (player.car) updateCar(dt); else updateFoot(dt);
-  const proxy = { x: player.x, z: player.z, vx: player.vx, vz: player.vz, speed: Math.abs(player.speed), inCar: !!player.car };
+  // inside the bank, the police stage at the street door — they respond to
+  // the building, not to the player's off-map interior position
+  const holdFlow = missions.holdWantedFlow();
+  const proxy = holdFlow
+    ? { x: 100, z: 150, vx: 0, vz: 0, speed: 0, inCar: false, carDead: false }
+    : { x: player.x, z: player.z, vx: player.vx, vz: player.vz, speed: Math.abs(player.speed), inCar: !!player.car, carDead: !!player.car?.dead };
   police.update(dt, {
     player: proxy, wanted, wantedState,
     search: wantedState === 'search' ? search : null,
@@ -868,7 +1202,13 @@ function updateWorld(dt) {
   // the search, or a 5★ escape (DUO ch.6) could never go dark under the bird.
   const seen = nearestCopD < 62 || police.officerThreatDist < 40;
   if (seen) { unseenT = 0; lastSeenX = player.x; lastSeenZ = player.z; } else unseenT += dt;
-  if (pinnedWanted !== null) {
+  if (holdFlow && wanted > 0) {
+    // inside the bank the police KNOW where you are: no search, no drain —
+    // the response waits at the door for the exit
+    wantedState = 'chase'; search = null; unseenT = 0;
+    lastSeenX = 100; lastSeenZ = 150;
+    episodePeak = Math.max(episodePeak, wanted);
+  } else if (pinnedWanted !== null) {
     wantedState = wanted > 0 ? 'chase' : 'clear';
     search = null;
   } else if (wanted > 0) {
@@ -944,7 +1284,8 @@ function updateWorld(dt) {
   } else {
     hud.setDrive(null);
     hud.setHealth(player.health < 99.5 ? player.health / 100 : null);
-    if (weapons.current) {
+    if (weapons.current === 'bat') hud.setWeapon('Bat · MELEE');
+    else if (weapons.current) {
       const def = weaponDef(weapons.current), st = weapons.state[weapons.current];
       hud.setWeapon(`${def.name} · ${st.mag} / ${st.reserve}${weapons.reloading > 0 ? ' · RELOADING' : ''}`);
     } else hud.setWeapon(null);
@@ -1014,6 +1355,7 @@ const shotApi = {
   banner: (t, s) => G.banner(t, s),
   setDaylight: (v) => city.setDaylight(v),
   startMission(id) { const r = activeMissions(); const def = r.defById(id); placePlayer(def.start.x, def.start.z, player.heading); return r.start(def); },
+  setDone: (ids) => { S.done = [...ids]; refreshAllMarkers(); },
   cash: () => curCash(),
   openShop, setLead,
   grantWeapon: (id) => weapons.grant(id),
@@ -1023,12 +1365,12 @@ window.__game = {
   get state() {
     const runner = activeMissions();
     return {
-      cash: curCash(), duoCash: S.duoCash, wanted, bust, health: player.health, done: [...curDone()],
-      darioDone: [...S.done], duoDone: [...S.duoDone], campaign: S.campaign, lead: currentLead,
+      cash: S.cash, wanted, bust, health: player.health, done: [...S.done],
+      lead: currentLead, leadModel: playerMesh.userData.female ? 'female' : 'male',
       armour: S.armour, rep: S.rep, wantedState, zone: currentZone,
       search: search ? { ...search } : null,
       house: S.house, stored: S.stored, inCar: !!player.car, mode,
-      player: { x: player.x, z: player.z, heading: player.heading, speed: player.speed },
+      player: { x: player.x, z: player.z, heading: player.heading, speed: player.speed, y: player.yOff },
       car: player.car ? { model: player.car.model.id, health: player.car.health, dead: player.car.dead, speed: player.car.speed } : null,
       mission: runner.active ? { id: runner.active.def.id, stage: runner.active.stage ?? null, gate: runner.active.gate ?? null, ricoGate: runner.active.ricoGate ?? null, timer: runner.active.timer ?? null } : null,
       cops: police.cops.length, heli: !!police.heliState, heliState: police.heliState, heliHp: police.heliHp,
@@ -1044,7 +1386,6 @@ window.__game = {
   setWanted: shotApi.setWanted, addCash: (n) => G.addCash(n),
   setCash(n) { setCurCash(n); },
   startMission: shotApi.startMission,
-  startCampaign: (name, fresh) => startCampaign(name, fresh),
   vehicles: allVehicles, world: currentWorld,
   setDaylight: shotApi.setDaylight,
   stage: (name) => stageShot(name, shotApi),
@@ -1072,10 +1413,37 @@ window.__game = {
     clearOfficers: () => { for (const o of [...police.officers]) police.destroyOfficer(o); },
     heli: () => ({ state: police.heliState, hp: police.heliHp, spawns: police.heliSpawns, cooldown: police.heliCooldown }),
     officers: () => police.officers.map((o) => ({ state: o.state, x: o.x, z: o.z })),
-    thugs: () => activeMissions().thugsAlive(),
+    thugs: () => missions.thugsAlive(),
     zone: () => currentZone,
     searchState: () => ({ wantedState, search: search ? { ...search } : null }),
-    lead: () => currentLead, campaign: () => S.campaign,
+    lead: () => currentLead, campaign: () => 'single',
+    leadModel: () => (playerMesh.userData.female ? 'female' : 'male'),
+    pedGenders: () => ({ female: peds.peds.filter((p) => p.female).length, total: peds.peds.length }),
+    heist: () => (missions.active?.heist ? {
+      step: missions.active.heist.step, fear: missions.active.heist.fear,
+      drill: missions.active.heist.drillTotal ? missions.active.heist.drillT / missions.active.heist.drillTotal : 0,
+      bags: missions.active.heist.bagsGot, inside: missions.playerInsideBank(),
+      hostageHurt: missions.active.heist.hostageHurt,
+      hostages: missions.active.heist.hostages.length,
+      bagsPos: missions.active.heist.bags.map((b) => ({ x: b.x, z: b.z, taken: b.taken })),
+    } : null),
+    heistSteps: () => missions.heistSteps(),
+    dialogue: () => (missions.active ? { active: !!missions.active.dialogue, idx: missions.active.dialogueIdx || 0, total: missions.active.def.dialogue?.length || 0, talkDone: !!missions.active.talkDone } : null),
+    skipDialogue: () => missions.skipDialogue(),
+    enterBank: () => missions.enterBank(),
+    exitBank: () => missions.exitBank(),
+    phone: () => ({ open: phone.open, app: phone.app, unread: phone.unread, messages: phone.messages.map((m) => ({ from: m.from, text: m.text })) }),
+    openPhone: () => openPhone(), closePhone: () => closePhone(),
+    openPhoneApp: (app) => showPhoneApp(app), phoneView: () => phoneView(),
+    setDone: (ids) => { S.done = [...ids]; refreshAllMarkers(); save(); },
+    settings: () => ({ ...settings }),
+    setSettings: (patch) => { Object.assign(settings, patch); applySettings(); saveSettings(); },
+    audioInfo: () => ({ ready: !!audio.ctx, master: audio.master ? audio.master.gain.value : null, music: audio.music ? audio.music.gain.value : null, sfx: audio.sfx ? audio.sfx.gain.value : null }),
+    mapState: () => ({ open: mapOpen, view: lastMapView }),
+    openMap: () => openMap(), closeMap: () => closeMap(),
+    cityProps: () => city.props,
+    isOnRoad: (x, z, m = 0.9) => isOnRoad(x, z, m),
+    rendererInfo: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pixelRatio: renderer.getPixelRatio(), shadowOn: renderer.shadowMap.enabled }),
     time: () => elapsed,
     setLead: (id) => setLead(id),
     buyWeapon: (id) => buyWeapon(id), buyAmmo: (id) => buyAmmo(id), buyArmour: () => buyArmour(),
@@ -1086,7 +1454,7 @@ window.__game = {
 
 // ---------------------------------------------------------------- boot + loop
 if (shotName) {
-  startCampaign('dario', true);
+  startGame(true);
   setTimeout(() => stageShot(shotName, shotApi), 600);
 }
 const clock = new THREE.Clock();

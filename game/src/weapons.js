@@ -18,6 +18,11 @@ export const WEAPON_DEFS = [
 export const WEAPON_ORDER = WEAPON_DEFS.map((w) => w.id);
 export const defById = (id) => WEAPON_DEFS.find((w) => w.id === id);
 
+/** The starting melee weapon — the one sanctioned exception to
+ *  found-or-bought: every player starts owning the baseball bat. It is
+ *  never sold, has no ammo, and lives in the wheel's melee slot. */
+export const BAT_DEF = { id: 'bat', name: 'Bat', cls: 'MELEE', dmg: 20, interval: 0.55, range: 2.6, melee: true };
+
 // The three hidden world pickups — secrets, no minimap icon.
 export const PICKUP_SPOTS = [
   { id: 'shotgun', x: 196, z: 296 },   // the pier boards, near the end
@@ -38,7 +43,7 @@ export class WeaponSystem {
     this.h = hooks;
     this.state = {};
     for (const d of WEAPON_DEFS) this.state[d.id] = { owned: false, mag: 0, reserve: 0 };
-    this.current = null;          // weapon id or null (unarmed)
+    this.current = 'bat';         // the bat is owned from the first frame
     this.fireT = 0;               // cooldown to next shot
     this.reloading = 0;           // seconds left on the reload
     this.triggerHeld = false;
@@ -90,23 +95,24 @@ export class WeaponSystem {
     return true;
   }
   equip(id) {
+    if (id === 'bat') { this.current = 'bat'; this.reloading = 0; return true; }
     if (id !== null && !this.state[id]?.owned) return false;
     this.current = id;
     this.reloading = 0;
     return true;
   }
   cycle(dir) {
-    const owned = WEAPON_ORDER.filter((id) => this.state[id].owned);
-    if (!owned.length) return;
-    if (!this.current) { this.equip(dir > 0 ? owned[0] : owned[owned.length - 1]); return; }
+    const owned = ['bat', ...WEAPON_ORDER.filter((id) => this.state[id].owned)];
+    if (owned.length <= 1) return;
+    if (!this.current) { this.equip(owned[0]); return; }
     const i = owned.indexOf(this.current);
     this.equip(owned[(i + dir + owned.length) % owned.length]);
   }
-  cur() { return this.current ? defById(this.current) : null; }
-  curState() { return this.current ? this.state[this.current] : null; }
+  cur() { return this.current === 'bat' ? BAT_DEF : (this.current ? defById(this.current) : null); }
+  curState() { return this.current && this.current !== 'bat' ? this.state[this.current] : null; }
   startReload() {
     const d = this.cur(), s = this.curState();
-    if (!d || !s || this.reloading > 0 || s.mag >= d.mag || s.reserve <= 0) return false;
+    if (!d || d.melee || !s || this.reloading > 0 || s.mag >= d.mag || s.reserve <= 0) return false;
     this.reloading = d.reloadTime;
     this.h.audio.reloadSound(d.reloadTime > 1.8);
     return true;
@@ -126,7 +132,7 @@ export class WeaponSystem {
   }
   reset() {
     for (const d of WEAPON_DEFS) this.state[d.id] = { owned: false, mag: 0, reserve: 0 };
-    this.current = null;
+    this.current = 'bat';
     this.reloading = 0;
     for (const p of this.pickups) { p.taken = false; p.mesh.visible = true; }
     this.clearTempPickups();
@@ -134,7 +140,7 @@ export class WeaponSystem {
   restore(data) {
     if (!data) return;
     for (const id of WEAPON_ORDER) if (data.state?.[id]) this.state[id] = { owned: !!data.state[id].owned, mag: data.state[id].mag | 0, reserve: data.state[id].reserve | 0 };
-    this.current = data.current && this.state[data.current]?.owned ? data.current : null;
+    this.current = data.current === 'bat' ? 'bat' : (data.current && this.state[data.current]?.owned ? data.current : 'bat');
     for (const p of this.pickups) if ((data.pickupsTaken || []).includes(p.id)) { p.taken = true; p.mesh.visible = false; }
   }
   // ------------------------------------------------------------ effects
@@ -151,6 +157,7 @@ export class WeaponSystem {
     this.spawnFx(m, 0.05);
   }
   sparks(x, y, z, color = 0xffd98a, n = 5, size = 0.5) {
+    n = Math.max(1, Math.round(n * (this.h.fxScale?.() ?? 1)));   // Rendah trims particles
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { pos[i * 3] = x + (Math.random() - 0.5) * 0.4; pos[i * 3 + 1] = y + Math.random() * 0.4; pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.4; }
@@ -303,6 +310,30 @@ export class WeaponSystem {
     const pd = dist2d(x, z, P.x, P.z);
     if (pd < R) this.h.hurtPlayer((8 + def.dmg * 0.55) * fall(pd));
   }
+  // ------------------------------------------------------------ melee (bat)
+  /** One bat swing: a short frontal arc. Peds are knocked DOWN (non-lethal),
+   *  officers and thugs take the bat's damage. A landed hit reports a
+   *  'meleeHit' crime — main.js only raises heat for a direct close witness. */
+  swing(P) {
+    this.h.audio.swing();
+    const hx = Math.sin(P.aimHeading), hz = Math.cos(P.aimHeading);
+    const inArc = (o) => {
+      if (o.state === 'down' || o.down) return false;
+      const dx = o.x - P.x, dz = o.z - P.z;
+      const d = Math.hypot(dx, dz);
+      if (d > BAT_DEF.range || d < 0.01) return false;
+      return (dx * hx + dz * hz) / d > 0.35;   // ~±70° frontal arc
+    };
+    let hitPed = false, hitCop = false;
+    for (const ped of P.peds) if (inArc(ped)) { P.knockPed(ped); hitPed = true; this.sparks(ped.x, 1.1, ped.z, 0xd8c9a0, 3, 0.35); }
+    for (const o of P.officers) if (inArc(o)) { P.hurtOfficer(o, BAT_DEF.dmg, P.x, P.z); hitCop = true; }
+    for (const t of P.thugs) if (inArc(t)) { P.hurtThug(t, BAT_DEF.dmg, P.x, P.z); }
+    // striking an officer is witnessed by definition; a floored civilian is
+    // judged by main's witness rules (officer nearby / civilian report / none)
+    if (hitCop) this.h.crime(2, 'copHit');
+    else if (hitPed) this.h.crime(1, 'meleeHit');
+    this.h.shake(0.02);
+  }
   // ------------------------------------------------------------ per-frame
   update(dt, firing) {
     this.time += dt;
@@ -328,6 +359,14 @@ export class WeaponSystem {
       }
     }
     if (!P.onFoot) { this.updateProjectiles(dt, P); return; }
+    if (this.current === 'bat') {
+      // melee: single swings on a fresh trigger press, on the bat's cooldown
+      this.fireT -= dt;
+      if (firing && !this.triggerHeld && this.fireT <= 0) { this.swing(P); this.fireT = BAT_DEF.interval; }
+      this.triggerHeld = firing;
+      this.updateProjectiles(dt, P);
+      return;
+    }
     if (!this.cur()) { this.updateProjectiles(dt, P); return; }   // unarmed: rockets already in flight must keep flying (an early return here froze them mid-air)
     // reload bookkeeping
     if (this.reloading > 0) {

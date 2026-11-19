@@ -14,6 +14,38 @@ import {
 
 const SHOP_NAMES = ['CAFE SOL', 'HOTEL MARINA', 'PALM RECORDS', 'TACO BRAVO', 'HOTEL AZUL', 'SURF SHOP', 'BAR LOLA', 'DINER 24H', 'CINEMA REX', 'GYM FLEX', 'PAWN & CO', 'CLUB NEON', "LOLA'S DEPOT", 'BAIT & TACKLE', 'HOTEL CORAL'];
 
+// ---------------------------------------------------------------------------
+// The road map, as data: every asphalt surface in the three zones. Vegetation
+// and street props are placed against this so nothing ever lands on a road
+// (round 2 fix: the boulevard palm rows used to sweep straight across the
+// avenue crossings). Downtown boulevards run the full strip length; avenues
+// run from north of the grid to the beach edge.
+export const ROAD_RECTS = [];
+for (const zc of CITY.boulevardsZ) ROAD_RECTS.push({ minX: -313, maxX: 313, minZ: zc - CITY.roadHalf, maxZ: zc + CITY.roadHalf });
+for (const xc of CITY.avenuesX) ROAD_RECTS.push({ minX: xc - CITY.roadHalf, maxX: xc + CITY.roadHalf, minZ: CITY.northZ - 50, maxZ: CITY.beachZ + 16 });
+// Zone B — Harbor Industrial truck roads (17 m wide)
+for (const z of [160, 40, -60]) ROAD_RECTS.push({ minX: 288, maxX: 486, minZ: z - 8.5, maxZ: z + 8.5 });
+for (const x of [312, 392, 462]) ROAD_RECTS.push({ minX: x - 8.5, maxX: x + 8.5, minZ: -84, maxZ: 204 });
+
+function segDist(px, pz, x1, z1, x2, z2) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (pz - z1) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - (x1 + dx * t), pz - (z1 + dz * t));
+}
+/** Is (x, z) on asphalt? margin widens every surface (prop radius). */
+export function isOnRoad(x, z, margin = 0) {
+  for (const r of ROAD_RECTS) {
+    if (x > r.minX - margin && x < r.maxX + margin && z > r.minZ - margin && z < r.maxZ + margin) return true;
+  }
+  // Zone C — the island ring road is an annulus (r 61..79 around the island centre)
+  const di = Math.hypot(x + 380, z - 340);
+  if (di > 61 - margin && di < 79 + margin) return true;
+  // the causeway deck (mainland → island shore) and the spur to the ring
+  if (segDist(x, z, -242.8, 243.7, -290.2, 278.4) < 6.5 + margin) return true;
+  if (segDist(x, z, -287, 276, -322.4, 300.3) < 6 + margin) return true;
+  return false;
+}
+
 function mergeGeoms(parts) {
   // parts: [{geom, matrix}] — concatenate into one BufferGeometry (positions/normals/uvs/index).
   let vCount = 0, iCount = 0;
@@ -63,6 +95,16 @@ function frondStarGeometry(leafTex) {
 export function buildCity(scene) {
   const rng = makeRng(20261117);
   const colliders = [];
+  const props = [];   // every placed vegetation/prop position, for the road-clearance audit
+  // Deterministic road clearance: try the spot, then fixed nudges; null if
+  // nothing nearby is clear. No rng — placement stays reproducible.
+  const clearSpot = (x, z, margin = 0.9) => {
+    if (!isOnRoad(x, z, margin)) return [x, z];
+    for (const [dx, dz] of [[13, 0], [-13, 0], [0, 13], [0, -13], [26, 0], [-26, 0], [6.5, 9], [-6.5, -9]]) {
+      if (!isOnRoad(x + dx, z + dz, margin)) return [x + dx, z + dz];
+    }
+    return null;
+  };
   const group = new THREE.Group(); scene.add(group);
 
   // --- lights ---------------------------------------------------------------
@@ -245,11 +287,16 @@ export function buildCity(scene) {
   { const p = trunkGeo.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + Math.pow((y + 2.7) / 5.4, 2) * 0.9); } trunkGeo.computeVertexNormals(); }
   const frondGeo = frondStarGeometry(leafTex);
   const palmSpots = [];
-  const palmAt = (x, z) => palmSpots.push({ x, z, rot: rng() * Math.PI * 2, s: randRange(rng, 0.85, 1.3) });
+  const palmAt = (x, z) => {
+    const s = clearSpot(x, z);   // never on asphalt: nudge off road crossings, else drop
+    if (!s) return;
+    palmSpots.push({ x: s[0], z: s[1], rot: rng() * Math.PI * 2, s: randRange(rng, 0.85, 1.3) });
+    props.push({ kind: 'palm', x: s[0], z: s[1] });
+  };
   for (const zc of CITY.boulevardsZ) for (let x = -CITY.extentX + 12; x < CITY.extentX; x += 26) { palmAt(x + randRange(rng, -3, 3), zc - CITY.roadHalf - 1.6); palmAt(x + 13, zc + CITY.roadHalf + 1.6); }
   for (let x = -CITY.extentX + 8; x < CITY.extentX; x += 17) palmAt(x, 176.5);
   for (let x = -CITY.extentX + 20; x < CITY.extentX; x += 34) palmAt(x + randRange(rng, -5, 5), randRange(rng, 202, 226));
-  for (let i = 0; i < 16; i++) palmAt(randRange(rng, -34, 34), randRange(rng, -74, -6));   // the park
+  for (let i = 0; i < 16; i++) palmAt(randRange(rng, -30, 30), randRange(rng, -70, -10));   // the park (inside its block)
   const trunkInst = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x8a6844, roughness: 1 }), palmSpots.length);
   const frondInst = new THREE.InstancedMesh(frondGeo, new THREE.MeshStandardMaterial({ map: leafTex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 1 }), palmSpots.length);
   const dummy = new THREE.Object3D();
@@ -264,8 +311,9 @@ export function buildCity(scene) {
   group.add(trunkInst, frondInst);
 
   const lampPos = [];
-  for (const zc of CITY.boulevardsZ) for (let x = -CITY.extentX + 20; x < CITY.extentX; x += 40) lampPos.push([x, zc + CITY.roadHalf + 1]);
-  for (const xc of CITY.avenuesX) for (let z = CITY.northZ + 20; z < 170; z += 40) lampPos.push([xc + CITY.roadHalf + 1, z]);
+  const lampAt = (x, z) => { const s = clearSpot(x, z); if (s) { lampPos.push(s); props.push({ kind: 'lamp', x: s[0], z: s[1] }); } };
+  for (const zc of CITY.boulevardsZ) for (let x = -CITY.extentX + 20; x < CITY.extentX; x += 40) lampAt(x, zc + CITY.roadHalf + 1);
+  for (const xc of CITY.avenuesX) for (let z = CITY.northZ + 20; z < 170; z += 40) lampAt(xc + CITY.roadHalf + 1, z);
   const poleInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 5), new THREE.MeshStandardMaterial({ color: 0x3c4450, roughness: 0.7, metalness: 0.5 }), lampPos.length);
   const headInst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.32, 8, 6), new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xffca7a, emissiveIntensity: 1.6 }), lampPos.length);
   lampPos.forEach(([x, z], i) => {
@@ -282,7 +330,10 @@ export function buildCity(scene) {
   const umbInst = new THREE.InstancedMesh(umbGeo, new THREE.MeshStandardMaterial({ roughness: 0.9 }), 26);
   const umbColors = [0xff5e78, 0x22c1a3, 0xffb020, 0x4aa8ff, 0xff8b3d];
   for (let i = 0; i < 26; i++) {
-    dummy.position.set(randRange(rng, -CITY.extentX + 16, CITY.extentX - 16), 0.1, randRange(rng, 204, 228));
+    let ux = randRange(rng, -CITY.extentX + 16, CITY.extentX - 16), uz = randRange(rng, 204, 228);
+    const us = clearSpot(ux, uz); if (us) { ux = us[0]; uz = us[1]; } else uz = 210;   // avenue strips end at z 206
+    dummy.position.set(ux, 0.1, uz);
+    props.push({ kind: 'umbrella', x: ux, z: uz });
     dummy.rotation.set(0, rng() * 3, 0); dummy.scale.setScalar(randRange(rng, 0.9, 1.25)); dummy.updateMatrix();
     umbInst.setMatrixAt(i, dummy.matrix);
     umbInst.setColorAt(i, new THREE.Color(pick(rng, umbColors)));
@@ -468,12 +519,16 @@ export function buildCity(scene) {
     const benchWood = new THREE.MeshStandardMaterial({ color: 0x7a5230, roughness: 0.95 });
     const ironMat = new THREE.MeshStandardMaterial({ color: 0x2e3438, roughness: 0.6, metalness: 0.5 });
     const benchAt = (x, z, rotY) => {
+      const bs = clearSpot(x, z, 1.2);   // a bench never sits on asphalt either
+      if (!bs) return;
+      x = bs[0]; z = bs[1];
       const b = new THREE.Group();
       const seat = new THREE.Mesh(boxGeo, benchWood); seat.scale.set(2.2, 0.12, 0.55); seat.position.y = 0.5; seat.castShadow = true; b.add(seat);
       const back = new THREE.Mesh(boxGeo, benchWood); back.scale.set(2.2, 0.55, 0.1); back.position.set(0, 0.85, -0.26); b.add(back);
       for (const s of [-0.9, 0.9]) { const leg = new THREE.Mesh(boxGeo, ironMat); leg.scale.set(0.12, 0.5, 0.5); leg.position.set(s, 0.25, 0); b.add(leg); }
       b.position.set(x, 0.24, z); b.rotation.y = rotY;
       group.add(b);
+      props.push({ kind: 'bench', x, z });
       colliders.push({ minX: x - 1.1, maxX: x + 1.1, minZ: z - 0.45, maxZ: z + 0.45 });
     };
     for (let x = -216; x <= 216; x += 36) benchAt(x, 180.5, 0);                        // facing the sea
@@ -485,7 +540,7 @@ export function buildCity(scene) {
       { geom: new THREE.SphereGeometry(0.16, 7, 6), matrix: new THREE.Matrix4().makeTranslation(0, 0.68, 0) },
     ]);
     const hydSpots = [];
-    for (const zc of CITY.boulevardsZ) for (const xc of CITY.avenuesX) hydSpots.push([xc + CITY.roadHalf + 1.1, zc + CITY.roadHalf + 1.1]);
+    for (const zc of CITY.boulevardsZ) for (const xc of CITY.avenuesX) { const s = clearSpot(xc + CITY.roadHalf + 1.1, zc + CITY.roadHalf + 1.1); if (s) { hydSpots.push(s); props.push({ kind: 'hydrant', x: s[0], z: s[1] }); } }
     const hydInst = new THREE.InstancedMesh(hydGeo, hydMat, hydSpots.length);
     hydSpots.forEach(([x, z], i) => {
       dummy.position.set(x, 0.24, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1); dummy.updateMatrix();
@@ -498,6 +553,9 @@ export function buildCity(scene) {
       { x: -64, z: -168.5, ry: 0, head: 'VELOCITY RS', sub: 'OWN THE NIGHT' },
     ];
     for (const ad of ads) {
+      const as = clearSpot(ad.x, ad.z, 1.2);
+      if (as) { ad.x = as[0]; ad.z = as[1]; }
+      props.push({ kind: 'billboard', x: ad.x, z: ad.z });
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 6.4, 7), ironMat);
       pole.position.set(ad.x, 3.2, ad.z); pole.castShadow = true; group.add(pole);
       const panel = new THREE.Mesh(new THREE.PlaneGeometry(13, 6.5), new THREE.MeshBasicMaterial({ map: billboardTexture(rng, ad.head, ad.sub), side: THREE.DoubleSide }));
@@ -518,7 +576,10 @@ export function buildCity(scene) {
     for (let i = 0; i < 30; i++) {
       let x = randRange(rng, -242, 242);
       if (x > 168 && x < 214) x -= 60;   // keep towels off the quay deck
-      const z = randRange(rng, 202, 234), rot = rng() * Math.PI;
+      let z = randRange(rng, 202, 234);
+      const ts = clearSpot(x, z); if (ts) { x = ts[0]; z = ts[1]; } else z = 210;
+      const rot = rng() * Math.PI;
+      props.push({ kind: 'towel', x, z });
       dummy.position.set(x, 0.06, z); dummy.rotation.set(-Math.PI / 2, 0, rot); dummy.scale.setScalar(1); dummy.updateMatrix();
       towelInst.setMatrixAt(i, dummy.matrix);
       towelInst.setColorAt(i, new THREE.Color(pick(rng, towelColors)));
@@ -527,7 +588,10 @@ export function buildCity(scene) {
     group.add(towelInst);
     const loungerMat = new THREE.MeshStandardMaterial({ color: 0xf2f0eb, roughness: 0.8 });
     for (let i = 0; i < 10; i++) {
-      const x = randRange(rng, -230, 230), z = randRange(rng, 204, 228), rot = rng() * 0.6 - 0.3;
+      let x = randRange(rng, -230, 230), z = randRange(rng, 204, 228);
+      const ls = clearSpot(x, z); if (ls) { x = ls[0]; z = ls[1]; } else z = 210;
+      const rot = rng() * 0.6 - 0.3;
+      props.push({ kind: 'lounger', x, z });
       const lg = new THREE.Group();
       const base = new THREE.Mesh(boxGeo, loungerMat); base.scale.set(0.75, 0.22, 1.9); base.position.y = 0.2; lg.add(base);
       const back = new THREE.Mesh(boxGeo, loungerMat); back.scale.set(0.75, 0.9, 0.14); back.position.set(0, 0.55, -0.95); back.rotation.x = -0.6; lg.add(back);
@@ -749,7 +813,10 @@ export function buildCity(scene) {
     const leafTex2 = palmLeafTexture();
     for (let i = 0; i < 14; i++) {
       const a = rng() * Math.PI * 2, rr = randRange(rng, 84, 104);
-      const px = I.cx + Math.sin(a) * rr, pz = I.cz + Math.cos(a) * rr;
+      let px = I.cx + Math.sin(a) * rr, pz = I.cz + Math.cos(a) * rr;
+      const ps = clearSpot(px, pz);   // keep them off the ring road / causeway spur
+      if (!ps) continue;
+      px = ps[0]; pz = ps[1];
       const palm = new THREE.Group();
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 5.2, 6), new THREE.MeshStandardMaterial({ color: 0x8a6844, roughness: 1 }));
       trunk.position.y = 2.6; trunk.castShadow = true; palm.add(trunk);
@@ -758,6 +825,7 @@ export function buildCity(scene) {
       palm.position.set(px, 0.05, pz);
       palm.rotation.y = rng() * 3;
       group.add(palm);
+      props.push({ kind: 'palm', x: px, z: pz });
       colliders.push({ minX: px - 0.4, maxX: px + 0.4, minZ: pz - 0.4, maxZ: pz + 0.4 });
     }
   }
@@ -796,7 +864,7 @@ export function buildCity(scene) {
 
   return {
     colliders, sidewalkLoops, parkedSpots, pierRect: CITY.pier, beachTowels,
-    safehouse: safehouseRefs, cruisers, setDaylight,
+    safehouse: safehouseRefs, cruisers, setDaylight, props, sun,
     update(dt) {
       cityT += dt;
       oceanTex.offset.y += dt * 0.008; oceanTex.offset.x += dt * 0.0025;

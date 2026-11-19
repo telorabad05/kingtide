@@ -55,40 +55,101 @@ export class HUD {
   // world → minimap coords: x [-520, 520], z [-260, 560] onto 190×190 (all three zones fit)
   mx(x) { return (x + 520) / 1040 * 190; }
   mz(z) { return (z + 260) / 820 * 190; }
-  prerenderMap() {
+  prerenderMap() { return this.renderMapBase(190, 190, false); }
+  /** The ONE map drawing, shared by the minimap and the full map (M):
+   *  same layout data, same projection — only the scale and detail differ. */
+  renderMapBase(w, h, detailed) {
     const c = document.createElement('canvas');
-    c.width = 190; c.height = 190;
+    c.width = w; c.height = h;
     const g = c.getContext('2d');
-    g.fillStyle = '#14607e'; g.fillRect(0, 0, 190, 190);                       // sea
-    g.fillStyle = '#8f8672'; g.fillRect(this.mx(-270), this.mz(-230), this.mx(270) - this.mx(-270), this.mz(190) - this.mz(-230)); // mainland
-    g.fillStyle = '#e8d29a'; g.fillRect(this.mx(-270), this.mz(186), this.mx(270) - this.mx(-270), this.mz(254) - this.mz(186));   // beach
+    const X = (x) => (x + 520) / 1040 * w, Z = (z) => (z + 260) / 820 * h;
+    const K = w / 190;   // stroke/dot scale vs the minimap
+    g.fillStyle = '#14607e'; g.fillRect(0, 0, w, h);                       // sea
+    g.fillStyle = '#8f8672'; g.fillRect(X(-270), Z(-230), X(270) - X(-270), Z(190) - Z(-230)); // mainland
+    g.fillStyle = '#e8d29a'; g.fillRect(X(-270), Z(186), X(270) - X(-270), Z(254) - Z(186));   // beach
     g.fillStyle = '#3d4148';                                                    // roads
-    for (const x of CITY.avenuesX) g.fillRect(this.mx(x) - 1, this.mz(-230), 2, this.mz(190) - this.mz(-230));
-    for (const z of CITY.boulevardsZ) g.fillRect(this.mx(-270), this.mz(z) - 1, this.mx(270) - this.mx(-270), 2);
+    for (const x of CITY.avenuesX) g.fillRect(X(x) - K, Z(-230), 2 * K, Z(190) - Z(-230));
+    for (const z of CITY.boulevardsZ) g.fillRect(X(-270), Z(z) - K, X(270) - X(-270), 2 * K);
     g.fillStyle = '#58a447';                                                    // park
-    g.fillRect(this.mx(-32), this.mz(-72), this.mx(32) - this.mx(-32), this.mz(-8) - this.mz(-72));
+    g.fillRect(X(-32), Z(-72), X(32) - X(-32), Z(-8) - Z(-72));
     g.fillStyle = '#9b958a';                                                    // stadium
-    g.beginPath(); g.arc(this.mx(CITY.stadium.cx), this.mz(CITY.stadium.cz), 4, 0, 7); g.fill();
+    g.beginPath(); g.arc(X(CITY.stadium.cx), Z(CITY.stadium.cz), 4 * K, 0, 7); g.fill();
     g.fillStyle = '#8a6844';                                                    // pier
     const P = CITY.pier;
-    g.fillRect(this.mx(P.minX), this.mz(P.minZ), this.mx(P.maxX) - this.mx(P.minX), this.mz(P.maxZ) - this.mz(P.minZ));
+    g.fillRect(X(P.minX), Z(P.minZ), X(P.maxX) - X(P.minX), Z(P.maxZ) - Z(P.minZ));
     // PLUS: Zone B — the industrial slab + its road cross
-    g.fillStyle = '#7d7a72'; g.fillRect(this.mx(288), this.mz(-84), this.mx(486) - this.mx(288), this.mz(204) - this.mz(-84));
+    g.fillStyle = '#7d7a72'; g.fillRect(X(288), Z(-84), X(486) - X(288), Z(204) - Z(-84));
     g.fillStyle = '#3d4148';
-    for (const z of [160, 40, -60]) g.fillRect(this.mx(288), this.mz(z) - 1, this.mx(486) - this.mx(288), 2);
-    for (const x of [312, 392, 462]) g.fillRect(this.mx(x) - 1, this.mz(-84), 2, this.mz(204) - this.mz(-84));
-    g.fillRect(this.mx(246), this.mz(160) - 1, this.mx(292) - this.mx(246), 2);   // east bridge
-    g.fillRect(this.mx(246), this.mz(40) - 1, this.mx(292) - this.mx(246), 2);
+    for (const z of [160, 40, -60]) g.fillRect(X(288), Z(z) - K, X(486) - X(288), 2 * K);
+    for (const x of [312, 392, 462]) g.fillRect(X(x) - K, Z(-84), 2 * K, Z(204) - Z(-84));
+    g.fillRect(X(246), Z(160) - K, X(292) - X(246), 2 * K);   // east bridge
+    g.fillRect(X(246), Z(40) - K, X(292) - X(246), 2 * K);
     // PLUS: Zone C — Hillcrest Island: green disc, sand rim, ring road
     g.fillStyle = '#e8d29a';
-    g.beginPath(); g.arc(this.mx(-380), this.mz(340), (112 / 1040) * 190, 0, 7); g.fill();
+    g.beginPath(); g.arc(X(-380), Z(340), (112 / 1040) * w, 0, 7); g.fill();
     g.fillStyle = '#58a447';
-    g.beginPath(); g.arc(this.mx(-380), this.mz(340), (94 / 1040) * 190, 0, 7); g.fill();
-    g.strokeStyle = '#3d4148'; g.lineWidth = 2;
-    g.beginPath(); g.arc(this.mx(-380), this.mz(340), (70 / 1040) * 190, 0, 7); g.stroke();
+    g.beginPath(); g.arc(X(-380), Z(340), (94 / 1040) * w, 0, 7); g.fill();
+    g.strokeStyle = '#3d4148'; g.lineWidth = 2 * K;
+    g.beginPath(); g.arc(X(-380), Z(340), (70 / 1040) * w, 0, 7); g.stroke();
     g.fillStyle = '#3d4148';
-    g.fillRect(this.mx(-300), this.mz(252), this.mx(-246) - this.mx(-300), 3);   // causeway
+    g.fillRect(X(-300), Z(252), X(-246) - X(-300), 3 * K);   // causeway
+    if (detailed) {
+      g.textAlign = 'center';
+      g.fillStyle = 'rgba(234,246,255,.92)';
+      g.font = `bold ${Math.round(15 * K)}px Georgia, serif`;
+      g.fillText('OCEANFRONT DOWNTOWN', X(-40), Z(-196));
+      g.fillText('HARBOR INDUSTRIAL', X(387), Z(-70));
+      g.fillText('HILLCREST ISLAND', X(-380), Z(452));
+      g.font = `${Math.round(11 * K)}px Georgia, serif`;
+      g.fillStyle = 'rgba(234,246,255,.75)';
+      g.fillText("LOLA'S QUAY", X(196), Z(330));
+      g.fillText('SOLMARINA', X(0), Z(-252));
+    }
     return c;
+  }
+  /** The full map (M key): base map + place icons + objective + player arrow.
+   *  Returns the projected pixel positions so tests can verify them. */
+  drawBigMap(canvas, view) {
+    const w = canvas.width, h = canvas.height;
+    if (!this.bigBase || this.bigBase.width !== w || this.bigBase.height !== h) this.bigBase = this.renderMapBase(w, h, true);
+    const g = canvas.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    g.drawImage(this.bigBase, 0, 0);
+    const X = (x) => (x + 520) / 1040 * w, Z = (z) => (z + 260) / 820 * h;
+    const out = { player: null, target: null, places: {} };
+    g.textAlign = 'center';
+    for (const p of view.places || []) {
+      const px = X(p.x), py = Z(p.z);
+      g.font = '19px serif';
+      g.fillText(p.icon, px, py + 6);
+      g.font = '11px sans-serif'; g.fillStyle = '#eaf6ff';
+      g.fillText(p.label, px, py + 20);
+      out.places[p.label] = { px, py };
+    }
+    if (view.target) {
+      const px = X(view.target.x), py = Z(view.target.z);
+      const pulse = 9 + Math.sin(performance.now() * 0.008) * 2.5;
+      g.strokeStyle = '#2fe8c8'; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(px, py, pulse + 5, 0, 7); g.stroke();
+      g.fillStyle = '#2fe8c8';
+      g.beginPath(); g.arc(px, py, 4.5, 0, 7); g.fill();
+      g.font = 'bold 11px sans-serif'; g.fillStyle = '#2fe8c8';
+      g.fillText('OBJEKTIF', px, py - pulse - 9);
+      out.target = { px, py };
+    }
+    // player arrow — same rotation convention as the minimap
+    const px = X(view.player.x), py = Z(view.player.z);
+    g.save();
+    g.translate(px, py);
+    g.rotate(Math.PI - view.player.heading);
+    g.fillStyle = '#ffffff';
+    g.strokeStyle = '#10222f'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(0, -10); g.lineTo(6.5, 8); g.lineTo(0, 4); g.lineTo(-6.5, 8); g.closePath(); g.fill(); g.stroke();
+    g.restore();
+    g.font = 'bold 11px sans-serif'; g.fillStyle = '#ffffff';
+    g.fillText('KAMU', px, py + 24);
+    out.player = { px, py };
+    return out;
   }
   drawMinimap(s) {
     const g = this.map;

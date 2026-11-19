@@ -151,11 +151,10 @@ export function repRank(rep) {
   return r.title;
 }
 
-// ------------------------------------------------------- PLUS: DUO (Part 2)
-// "KINGTIDE: DUO" — Val & Rafa's own campaign: separate progress + cash in
-// the save; weapons, armour and REP are shared with Dario's story.
-// Duo cash chain: 150 → 750 → 1650 → 3450 → 5850 → 7350 → 8550 → 13550.
-export const DUO_START_CASH = 150;
+// ------------------------------------------------- PLUS: the duo arc (Part 2)
+// Chapters 11–17 of the single campaign: Val & Rafa's story, paying into the
+// SAME wallet as Dario's chapters — 17350 → 17950 → 18850 → 20650 → 23050 →
+// 24550 → 25750 → 30750.
 export const DUO_REWARDS = {
   freshair: 600,
   firstscore: 900,

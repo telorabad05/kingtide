@@ -17,22 +17,34 @@ function box(parent, mat, sx, sy, sz, x, y, z) {
   parent.add(m); return m;
 }
 
-/** A person ~1.75 m tall. Returns a group with userData limbs for animation. */
+/** A person ~1.75 m tall. Returns a group with userData limbs for animation.
+ *  fixed.female builds the distinct female figure: long hair down the back
+ *  with a ponytail, a slimmer torso and legs, and a skirt block at the hips —
+ *  readable as female at gameplay camera distance. Males keep the broader
+ *  short-hair build. userData.female records which one was built. */
 export function makePerson(rng, fixed = null) {
   const g = new THREE.Group();
   const skin = new THREE.MeshStandardMaterial({ color: fixed?.skin ?? pick(rng, SKIN), roughness: 0.8 });
   const shirt = new THREE.MeshStandardMaterial({ color: fixed?.shirt ?? pick(rng, SHIRTS), roughness: 0.9 });
   const pants = new THREE.MeshStandardMaterial({ color: fixed?.pants ?? pick(rng, PANTS), roughness: 0.9 });
   const hair = new THREE.MeshStandardMaterial({ color: fixed?.hair ?? pick(rng, HAIR), roughness: 0.95 });
-  const legL = box(g, pants, 0.16, 0.78, 0.18, -0.11, 0.39, 0);
-  const legR = box(g, pants, 0.16, 0.78, 0.18, 0.11, 0.39, 0);
-  box(g, shirt, 0.52, 0.62, 0.26, 0, 1.09, 0);                    // torso
-  const armL = box(g, shirt, 0.12, 0.58, 0.14, -0.33, 1.08, 0);
-  const armR = box(g, shirt, 0.12, 0.58, 0.14, 0.33, 1.08, 0);
+  const female = !!fixed?.female;
+  const legW = female ? 0.13 : 0.16, legX = female ? 0.09 : 0.11;
+  const legL = box(g, pants, legW, 0.78, 0.18, -legX, 0.39, 0);
+  const legR = box(g, pants, legW, 0.78, 0.18, legX, 0.39, 0);
+  box(g, shirt, female ? 0.44 : 0.52, 0.62, 0.26, 0, 1.09, 0);                    // torso
+  if (female) box(g, pants, 0.52, 0.24, 0.3, 0, 0.84, 0);                          // skirt block at the hips
+  const armX = female ? 0.29 : 0.33;
+  const armL = box(g, shirt, 0.12, 0.58, 0.14, -armX, 1.08, 0);
+  const armR = box(g, shirt, 0.12, 0.58, 0.14, armX, 1.08, 0);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), skin);
   head.position.set(0, 1.58, 0); head.castShadow = true; g.add(head);
   box(g, hair, 0.34, 0.1, 0.34, 0, 1.7, 0);                       // hair cap
-  g.userData = { legL, legR, armL, armR, head };
+  if (female) {
+    box(g, hair, 0.32, 0.58, 0.08, 0, 1.4, -0.16);                // long hair down the back
+    box(g, hair, 0.11, 0.4, 0.09, 0, 1.22, -0.22);                // ponytail
+  }
+  g.userData = { legL, legR, armL, armR, head, female };
   return g;
 }
 
@@ -89,7 +101,7 @@ export class PedestrianSystem {
     }
     for (let i = 0; i < count; i++) {
       const loop = assignment[i];
-      const mesh = makePerson(rng);
+      const mesh = makePerson(rng, { female: rng() < 0.5 });   // ~half the crowd is female
       scene.add(mesh);
       const per = loop.type === 'line' ? Math.hypot(loop.x2 - loop.x1, loop.z2 - loop.z1) * 2 : 4 * (loop.hw + loop.hd);
       const isPromenade = loop.type === 'line' && loop.z1 === 178;
@@ -99,7 +111,7 @@ export class PedestrianSystem {
         x: 0, z: 0, heading: 0, phase: rng() * 6,
         state: 'stroll', timer: 0, partner: null, chatCooldown: randRange(rng, 4, 20),
         fleeX: 0, fleeZ: 0, fleeUntil: -1,
-        health: 100, downT: 0, fallA: 0, jog,
+        health: 100, downT: 0, fallA: 0, jog, female: mesh.userData.female,
       };
       const p = loopPoint(loop, ped.s);
       ped.x = p.x; ped.z = p.z; ped.heading = p.heading;
@@ -110,7 +122,7 @@ export class PedestrianSystem {
     // PLUS: static sunbathers lying on the towel spots the city laid out.
     this.sunbathers = [];
     for (const spot of sunSpots) {
-      const mesh = makePerson(rng);
+      const mesh = makePerson(rng, { female: rng() < 0.5 });
       mesh.rotation.order = 'YXZ';
       mesh.rotation.y = spot.rot || 0;
       mesh.rotation.x = -Math.PI / 2 + 0.06;   // flat on their back
@@ -118,6 +130,14 @@ export class PedestrianSystem {
       scene.add(mesh);
       this.sunbathers.push({ mesh, phase: rng() * 6 });
     }
+  }
+  /** Bat swing: the ped goes DOWN without losing health (non-lethal). */
+  knockDown(ped) {
+    if (!ped || ped.state === 'down') return;
+    if (ped.partner) { ped.partner.state = 'stroll'; ped.partner.partner = null; ped.partner = null; }
+    ped.state = 'down';
+    ped.downT = randRange(this.rng, 6, 10);
+    ped.fallA = 0;
   }
   /** PLUS: gunfire / shove damage. Non-gory: hurt peds flee; floored peds
    *  tip over, lie still a few seconds, then scramble up and run. */
@@ -138,6 +158,7 @@ export class PedestrianSystem {
   /** Register a threat at (x, z) moving (vx, vz): nearby peds scatter. */
   threaten(x, z, vx = 0, vz = 0, radius = 13) {
     for (const ped of this.peds) {
+      if (ped.state === 'down') continue;   // a floored ped stays down — threaten must not revive it
       if (dist2d(ped.x, ped.z, x, z) < radius) {
         ped.state = 'flee';
         ped.fleeX = x; ped.fleeZ = z; ped.fleeVX = vx; ped.fleeVZ = vz;
