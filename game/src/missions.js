@@ -1,9 +1,8 @@
-// The Story of Vice Harbor: ten chapters, unlocked in order, that take
-// Dario Venn from broke newcomer to the harbor's king wheelman. Each chapter
-// opens with a story banner (who gives the job, and the beat), runs on the
-// shared stage machinery — go-to stages, timed stages, a steal, escapes that
-// demand a cold trail, and two races against Rico — and pays into the chain:
-// 250 → 1050 → 2250 → 3750 → 5250 → 6350 → 7250 → 8550 → 10750 → 13350 → 17350.
+// KINGTIDE — ONE continuous 17-chapter story. Chapters 1–10: Dario Venn's
+// rise from broke newcomer to king wheelman of Solmarina. A transition —
+// "Meanwhile, across the bay…" — and chapters 11–17 follow Val & Rafa, the
+// crime duo, ending in the Harbor Bank heist. One wallet the whole way:
+// 250 → … → 17350 (end of ch.10) → … → 30750 (end of ch.17).
 import * as THREE from 'three';
 import { REWARDS, DUO_REWARDS, TUNING, CITY, modelById } from './config.js';
 import { clamp, angleDelta, dist2d, makeRng } from './random.js';
@@ -148,7 +147,7 @@ export const DUO_DEFS = [
     giver: 'Rafael "Rafa" Duarte',
     intro: 'Five years Val took the fall for the old crew. Today the gate opens — and Rafa is waiting, engine running.',
     start: { x: -228, z: 166 },
-    guestNpc: { x: -234, z: 158, outfit: { shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
+    guestNpc: { x: -234, z: 158, outfit: { female: true, shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
     stages: [
       { x: -234, z: 158, r: 7, label: 'Pick up Val at the gate', hook: 'valPickup', heatMin: 2 },
       { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Shake the tail and reach the Palm Row safehouse', escape: true },
@@ -215,19 +214,41 @@ export const DUO_DEFS = [
   {
     id: 'kingdom', name: 'Kingdom of Two', reward: DUO_REWARDS.kingdom, lead: 'rafa',
     giver: 'Val & Rafa',
-    intro: 'Festival night. The harbor cash office counts the whole season\'s take — and the duo plans to retire on it.',
-    start: { x: 392, z: 30 },
+    intro: 'Festival night. The Harbor Bank counts the whole season\'s take — and the duo plans to retire on it. First: the talk, at home.',
+    start: { x: 60, z: 110 },
     daylight: 0.85,
-    timer: 210, timerLabel: 'bag',
+    partnerNpc: { x: 67.5, z: 99, outfit: { female: true, shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
+    dialogue: [
+      { who: 'Val', text: 'Okay. One last job, Rafa. The Harbor Bank on Ocean Drive — festival night, the whole season\'s cash in one vault.' },
+      { who: 'Rafa', text: 'And the crew is… us. Two people, one bank.' },
+      { who: 'Val', text: 'Two people, one rule: nobody gets hurt. The lobby staff comply, we smile, we leave. Hostages are a shield, not a target.' },
+      { who: 'Rafa', text: 'The drill needs about a minute on that vault door. A loud minute.' },
+      { who: 'Val', text: 'The alarm trips the second the drill bites. Stars will stack up outside — that\'s fine. They wait, we work.' },
+      { who: 'Rafa', text: 'Three bags. Then out the front, five stars, straight to the marina.' },
+      { who: 'Val', text: 'Lola\'s boat idles at the quay. Reach it with a cold trail and we\'re ghosts — rich ghosts.' },
+      { who: 'Rafa', text: 'And if it goes wrong?' },
+      { who: 'Val', text: 'It won\'t. You drive, I drill, nobody bleeds. Deal?' },
+      { who: 'Rafa', text: 'Deal. Let\'s retire, partner.' },
+    ],
     stages: [
-      { x: 428, z: 24, r: 10, label: 'Bag 1: the cash office front', heat: 1 },
-      { x: 415, z: 8, r: 10, label: 'Bag 2: the office dock side', heat: 1, heatMin: 5 },
+      { type: 'talk', x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 7, label: 'Bicara dengan partner di apartemen' },
+      { type: 'heist', x: 100, z: 150, r: 7, label: 'The Harbor Bank heist' },
       { x: 190, z: 250, r: 10, label: 'Escape to Lola\'s Quay — cold trail to finish', escape: true },
     ],
     finalBanner: { title: '👑 Kingdom of Two', sub: 'Dario tips his glass from the next table: "Harbor\'s big enough for two crowns." Val & Rafa run the bay now — together.' },
   },
 ];
 DUO_DEFS.forEach((d, i) => { d.chapter = i + 1; });
+
+/** THE single campaign: Dario's ten chapters, then the duo's seven
+ *  renumbered 11–17. Chapter numbers are reassigned across the merge. */
+export const STORY_DEFS = [...MISSION_DEFS, ...DUO_DEFS];
+STORY_DEFS.forEach((d, i) => { d.chapter = i + 1; });
+
+/** The Harbor Bank's street door (Oceanfront Downtown, on Ocean Drive). */
+export const BANK_DOOR = { x: 100, z: 150 };
+const VAL_OUTFIT = { female: true, shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 };
+const RAFA_OUTFIT = { shirt: 0x1f7a6d, pants: 0x3a3230, hair: 0x1c1710, skin: 0xa06a35 };
 
 let npcSeed = 4242;
 /** A throwaway seeded rng for one-off NPC figures (guests, thugs). */
@@ -246,12 +267,17 @@ function makeBeacon(color) {  const grp = new THREE.Group();
 
 export class MissionRunner {
   /** game: the facade from main.js (playerState, addCash, setWantedMin, banner, vehicles...). */
-  constructor(scene, game, defs = MISSION_DEFS) {
+  constructor(scene, game, defs = STORY_DEFS) {
     this.scene = scene;
     this.game = game;
     this.defs = defs;
     this.active = null;        // { def, stage, timer, rico, stolenCar... }
     this.time = 0;
+    this.bankInterior = null;  // chapter 17's bank shell, built on demand
+    this.bankColliders = [];
+    this.bankVaultCollider = null;
+    this.bankVaultDoorMesh = null;
+    this.buildBankFront();
     this.startMarkers = new Map();
     for (const def of defs) {
       const b = makeBeacon(0xffc93c);
@@ -262,6 +288,24 @@ export class MissionRunner {
     this.targetBeacon = makeBeacon(0x2fe8c8);
     this.targetBeacon.visible = false;
     scene.add(this.targetBeacon);
+  }
+  /** The Harbor Bank storefront on Ocean Drive — a permanent landmark
+   *  (dark stone + gold trim) whose door is chapter 17's way in. */
+  buildBankFront() {
+    const grp = new THREE.Group();
+    const dark = new THREE.MeshStandardMaterial({ color: 0x27313d, roughness: 0.6, metalness: 0.3 });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xd8a022, roughness: 0.35, metalness: 0.7, emissive: 0x6b4a08, emissiveIntensity: 0.4 });
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(11, 5.4, 0.5), dark);
+    panel.position.set(BANK_DOOR.x, 2.7, 146.5); grp.add(panel);
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(8.6, 1.1, 0.3), gold);
+    sign.position.set(BANK_DOOR.x, 4.6, 146.9); grp.add(sign);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.4, 0.3), gold);
+    door.position.set(BANK_DOOR.x, 1.7, 146.9); grp.add(door);
+    for (const dx of [-4.6, 4.6]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5.4, 0.5), gold);
+      post.position.set(BANK_DOOR.x + dx, 2.7, 146.9); grp.add(post);
+    }
+    this.scene.add(grp);
   }
   defById(id) { return this.defs.find((d) => d.id === id); }
   isDone(id) { return this.game.isMissionDone(id); }
@@ -282,6 +326,13 @@ export class MissionRunner {
     const a = this.active;
     if (a.def.race) { const g = a.def.gates[a.gate]; return g ? { x: g.x, z: g.z } : null; }
     const s = a.def.stages[a.stage];
+    if (s?.type === 'heist' && a.heist) {
+      const H = a.heist;
+      if (H.step === 'goto' || H.step === 'enter') return { x: BANK_DOOR.x, z: BANK_DOOR.z };
+      if (H.step === 'control' || H.step === 'drill') return { x: 60, z: 1004 };
+      if (H.step === 'bags') { const b = H.bags.find((bb) => !bb.taken); return b ? { x: b.x, z: b.z } : { x: 60, z: 1012 }; }
+      if (H.step === 'exit') return { x: 60, z: 991.5 };
+    }
     return s ? { x: s.x, z: s.z } : null;
   }
   start(def) {
@@ -294,6 +345,7 @@ export class MissionRunner {
     }
     if (this.active) return false;
     if (def.lead) g.setLead?.(def.lead);
+    g.onChapterStart?.(def);
     if (def.daylight !== undefined) g.setDaylight?.(def.daylight);
     if (def.race) {
       const p = g.playerState();
@@ -323,8 +375,23 @@ export class MissionRunner {
         this.scene.add(mesh);
         this.active.guest = { mesh, x: def.guestNpc.x, z: def.guestNpc.z };
       }
+      // heist prologue: the partner waits in the apartment for the talk
+      if (def.partnerNpc) {
+        const mesh = makePerson(makePersonRng(), def.partnerNpc.outfit);
+        mesh.position.set(def.partnerNpc.x, 0.22, def.partnerNpc.z);
+        mesh.rotation.y = -Math.PI / 2;
+        this.scene.add(mesh);
+        this.active.partner = { mesh, x: def.partnerNpc.x, z: def.partnerNpc.z };
+      }
+      if (def.dialogue) { this.active.dialogue = false; this.active.dialogueIdx = 0; this.active.talkDone = false; }
+      // the heist: build the bank interior now so walking in is instant
+      if (def.stages.some((s) => s.type === 'heist')) {
+        this.buildBankInterior();
+        this.active.heist = { step: 'goto', fear: 0, controlT: 0, drillT: 0, drillTotal: 50, bagsGot: 0, hostages: [], bags: [], partner: null, drillMesh: null, hostageHurt: false, warnCd: 0, stage3: false, stage4: false };
+      }
       if (def.stingAtStart) { this.active.stingFired = true; g.setPinnedWanted(5); }
-      g.banner(this.chapterTag(def), def.intro);
+      if (def.id === 'freshair') g.banner('Meanwhile, across the bay…', def.intro);
+      else g.banner(this.chapterTag(def), def.intro);
     }
     this.refreshMarkers();
     return true;
@@ -350,6 +417,222 @@ export class MissionRunner {
     if (t.health <= 0) { t.state = 'down'; t.downT = 9999; t.fallA = 0; }
   }
   thugsAlive() { return (this.active?.thugs || []).filter((t) => t.state !== 'down').length; }
+  /** Everything the weapons system may hit: ambush thugs + heist hostages. */
+  combatants() {
+    const a = this.active;
+    if (!a) return [];
+    const list = [...(a.thugs || [])];
+    if (a.heist) for (const hst of a.heist.hostages) if (!hst.down) list.push(hst);
+    return list;
+  }
+  hurtCombatant(obj, dmg) {
+    if (obj.isHostage) { this.hurtHostage(obj); return; }
+    this.hurtThug(obj, dmg);
+  }
+  /** Non-graphic rule: a hurt hostage never blocks the chapter — the job
+   *  still pays in full, but the duo's clean-hands REP bonus is forfeited. */
+  hurtHostage(hst) {
+    const a = this.active;
+    if (!a?.heist || hst.down) return;
+    hst.down = true;
+    a.heist.hostageHurt = true;
+    this.game.banner('A hostage is hurt!', 'The job still pays — but the clean-hands REP bonus is gone. That was the ONE rule.');
+  }
+  // ---------------------------------------------------------- dialogue (ch.17 prologue)
+  dialogueActive() { return !!this.active?.dialogue; }
+  startDialogue() {
+    const a = this.active;
+    if (!a?.def.dialogue || a.dialogue || a.talkDone) return false;
+    a.dialogue = true; a.dialogueIdx = 0;
+    const line = a.def.dialogue[0];
+    this.game.banner(line.who, line.text);
+    return true;
+  }
+  advanceDialogue() {
+    const a = this.active;
+    if (!a?.dialogue) return false;
+    a.dialogueIdx++;
+    if (a.dialogueIdx >= a.def.dialogue.length) {
+      a.dialogue = false; a.talkDone = true;
+      this.game.banner('The plan is set', 'Wheels up — the Harbor Bank, festival night. Nobody gets hurt.');
+      return true;
+    }
+    const line = a.def.dialogue[a.dialogueIdx];
+    this.game.banner(line.who, line.text);
+    return true;
+  }
+  skipDialogue() {
+    const a = this.active;
+    if (a && a.def.stages[a.stage]?.type === 'talk' && !a.talkDone) { a.dialogue = false; a.talkDone = true; return true; }
+    return false;
+  }
+  // ---------------------------------------------------------- the bank heist (ch.17)
+  playerInsideBank() {
+    const p = this.game.playerState();
+    return p.x > 43 && p.x < 77 && p.z > 988 && p.z < 1020;
+  }
+  inLobby() {
+    const p = this.game.playerState();
+    return p.x > 45 && p.x < 75 && p.z > 989 && p.z < 1007;
+  }
+  /** While the player is inside the bank, main.js freezes the search flow
+   *  and stages the police response at the street door. */
+  holdWantedFlow() { return !!this.active?.heist && this.playerInsideBank(); }
+  /** Gunfire/explosions inside the bank spike the hostages' fear meter. */
+  onNoise(kind) {
+    const a = this.active;
+    if (!a?.heist || !this.playerInsideBank()) return;
+    const H = a.heist;
+    if (kind === 'explosion') { H.fear = 100; this.game.banner('PANIC!', 'The blast terrified the lobby — get back in there and calm it down!'); }
+    else if (kind === 'shotFired') { H.fear = Math.min(100, H.fear + 60); this.game.banner('Gunfire inside!', 'The hostages are panicking — the drill stalls while fear is maxed.'); }
+  }
+  /** The six Hugo steps, for the phone's Misi checklist + the HUD line. */
+  heistSteps() {
+    const a = this.active;
+    if (!a || a.def.id !== 'kingdom') return null;
+    const labels = ['Drive to the bank', 'Enter the building', 'Take control of the lobby — hostages subdued', 'Crack the vault (partner on the drill)', 'Grab the money — 3 bags', 'Escape to the marina, cold trail'];
+    let cur;
+    if (a.stage === 0) cur = -1;
+    else if (a.stage >= 2) cur = 5;
+    else { const s = a.heist?.step; cur = s === 'goto' ? 0 : s === 'enter' ? 1 : s === 'control' ? 2 : s === 'drill' ? 3 : s === 'bags' ? 4 : 5; }
+    return labels.map((label, i) => ({ label, state: cur < 0 ? 'todo' : i < cur ? 'done' : i === cur ? 'active' : 'todo' }));
+  }
+  /** Context prompt for main.js (F interactions owned by the runner). */
+  promptText() {
+    const a = this.active;
+    if (!a) return null;
+    const p = this.game.playerState();
+    const stage = a.def.stages[a.stage];
+    if (stage?.type === 'talk') {
+      if (a.dialogue) return 'F — lanjut bicara';
+      if (!a.talkDone && dist2d(p.x, p.z, stage.x, stage.z) < stage.r + 1) return 'F — bicara dengan partner';
+    }
+    if (a.heist) {
+      if (a.heist.step === 'enter' && dist2d(p.x, p.z, BANK_DOOR.x, BANK_DOOR.z) < 3.4) return 'F — masuk bank';
+      if (a.heist.step === 'exit' && this.playerInsideBank() && dist2d(p.x, p.z, 60, 991.5) < 3) return 'F — keluar & kabur!';
+    }
+    return null;
+  }
+  heistInteract() {
+    const a = this.active;
+    if (!a?.heist) return false;
+    const p = this.game.playerState();
+    if (a.heist.step === 'enter' && dist2d(p.x, p.z, BANK_DOOR.x, BANK_DOOR.z) < 3.4) return this.enterBank();
+    if (a.heist.step === 'exit' && this.playerInsideBank() && dist2d(p.x, p.z, 60, 991.5) < 3) return this.exitBank();
+    return false;
+  }
+  buildBankInterior() {
+    if (this.bankInterior) return;
+    const g = this.game;
+    const grp = new THREE.Group();
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0xcfc8b8, roughness: 0.35, metalness: 0.1 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8a7a5f, roughness: 0.85 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x3a2f22, roughness: 0.6 });
+    const goldMat = new THREE.MeshStandardMaterial({ color: 0xd8a022, roughness: 0.35, metalness: 0.7 });
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x9aa4ae, roughness: 0.3, metalness: 0.85 });
+    const add = (mat, w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); grp.add(m); return m; };
+    add(floorMat, 32, 0.2, 32, 60, 0.05, 1003);                                   // floor slab
+    const wall = (w, h, d, x, y, z) => {
+      const m = add(wallMat, w, h, d, x, y, z);
+      const c = { minX: x - w / 2 - 0.15, maxX: x + w / 2 + 0.15, minZ: z - d / 2 - 0.15, maxZ: z + d / 2 + 0.15 };
+      g.addDynCollider?.(c); this.bankColliders.push(c);
+      return m;
+    };
+    wall(13, 3.4, 0.6, 51.5, 1.7, 990); wall(13, 3.4, 0.6, 68.5, 1.7, 990);        // south wall (door gap x 58–62)
+    wall(0.6, 3.4, 32, 44, 1.7, 1003); wall(0.6, 3.4, 32, 76, 1.7, 1003);         // west / east walls
+    wall(32, 3.4, 0.6, 60, 1.7, 1019);                                            // north wall
+    wall(12, 3.4, 0.6, 51, 1.7, 1006); wall(12, 3.4, 0.6, 69, 1.7, 1006);         // vault divider (gap = the door)
+    wall(7, 3.4, 12, 48.5, 1.7, 1012); wall(7, 3.4, 12, 71.5, 1.7, 1012);         // sealed blocks flanking the vault room
+    this.bankVaultDoorMesh = add(steelMat, 6, 3.2, 0.5, 60, 1.6, 1006);          // the vault door
+    const wheelM = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.09, 8, 18), goldMat);
+    wheelM.position.set(60, 1.6, 1005.6); grp.add(wheelM);
+    this.bankVaultCollider = { minX: 56.8, maxX: 63.2, minZ: 1005.6, maxZ: 1006.4 };
+    g.addDynCollider?.(this.bankVaultCollider); this.bankColliders.push(this.bankVaultCollider);
+    const counter = add(darkMat, 14, 1.1, 1.2, 57, 0.65, 998);                    // the tellers' counter
+    const cc = { minX: 49.8, maxX: 64.2, minZ: 997.2, maxZ: 998.8 };
+    g.addDynCollider?.(cc); this.bankColliders.push(cc);
+    add(darkMat, 2.2, 0.75, 1.1, 52, 0.5, 1002); add(darkMat, 2.2, 0.75, 1.1, 68, 0.5, 994);   // desks
+    add(goldMat, 30, 0.25, 0.25, 60, 3.3, 990.2);                                 // gold trim lines
+    add(goldMat, 30, 0.25, 0.25, 60, 3.3, 1005.8);
+    this.scene.add(grp);
+    this.bankInterior = grp;
+  }
+  spawnHeistCrew() {
+    const a = this.active, H = a.heist;
+    H.hostages = [];
+    const spots = [[52, 996], [57, 1000], [63, 995], [68, 1000], [54, 1002], [66, 997]];
+    const shirts = [0x4a6b8a, 0xb8b0a0, 0x7a4a5a, 0x5a7a4a, 0x8a6a3a, 0x5a5a8a];
+    spots.forEach(([x, z], i) => {
+      const mesh = makePerson(makePersonRng(), { female: i % 2 === 0, shirt: shirts[i] });
+      mesh.position.set(x, 0.22, z);
+      mesh.rotation.y = Math.PI;   // facing the entrance, hands up
+      this.scene.add(mesh);
+      H.hostages.push({ mesh, x, z, state: 'hostage', down: false, isHostage: true, female: i % 2 === 0, phase: i * 1.7, fallA: 0 });
+    });
+    const partnerLead = a.def.lead === 'rafa' ? 'val' : 'rafa';
+    const pm = makePerson(makePersonRng(), partnerLead === 'val' ? VAL_OUTFIT : RAFA_OUTFIT);
+    pm.position.set(60, 0.22, 1003.6); pm.rotation.y = 0;
+    this.scene.add(pm);
+    H.partner = { mesh: pm, x: 60, z: 1003.6 };
+    const drill = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.5), new THREE.MeshStandardMaterial({ color: 0xd8a022, roughness: 0.5 }));
+    drill.position.set(60, 1.05, 1004.6); this.scene.add(drill);
+    H.drillMesh = drill;
+    H.bags = [];
+    for (const [x, z] of [[56, 1012], [60, 1013.5], [64, 1012]]) {
+      const bm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.45), new THREE.MeshStandardMaterial({ color: 0x2e7d46, emissive: 0x1d5c31, emissiveIntensity: 0.5, roughness: 0.7 }));
+      bm.position.set(x, 0.45, z); this.scene.add(bm);
+      H.bags.push({ mesh: bm, x, z, taken: false });
+    }
+  }
+  clearHeistCrew() {
+    const H = this.active?.heist;
+    if (!H) return;
+    for (const hst of H.hostages || []) this.scene.remove(hst.mesh);
+    if (H.partner) this.scene.remove(H.partner.mesh);
+    if (H.drillMesh) this.scene.remove(H.drillMesh);
+    for (const b of H.bags || []) this.scene.remove(b.mesh);
+    H.hostages = []; H.bags = []; H.partner = null; H.drillMesh = null;
+  }
+  enterBank() {
+    const a = this.active;
+    if (!a?.heist || a.heist.step !== 'enter') return false;
+    this.spawnHeistCrew();
+    a.heist.step = 'control'; a.heist.controlT = 0;
+    this.game.movePlayer?.(60, 993.5, 0);
+    this.game.banner('You\'re in', 'Hands up, nobody moves — keep the lobby calm and controlled.');
+    return true;
+  }
+  exitBank() {
+    const a = this.active;
+    if (!a?.heist || a.heist.step !== 'exit') return false;
+    a.heist.step = 'gone';
+    this.clearHeistCrew();
+    this.game.movePlayer?.(BANK_DOOR.x, BANK_DOOR.z - 3.5, 0);
+    this.game.setWantedMin(5);
+    this.game.banner('GO! GO! GO!', 'Five stars — the marina, cold trail, NOW.');
+    return true;
+  }
+  openVault() {
+    if (this.bankVaultDoorMesh) this.bankVaultDoorMesh.position.y = -1.4;   // the great door sinks open
+    if (this.bankVaultCollider) {
+      this.game.removeDynCollider?.(this.bankVaultCollider);
+      const i = this.bankColliders.indexOf(this.bankVaultCollider);
+      if (i >= 0) this.bankColliders.splice(i, 1);
+      this.bankVaultCollider = null;
+    }
+  }
+  teardownHeist() {
+    if (this.active?.heist) this.clearHeistCrew();
+    if (this.bankInterior) {
+      for (const c of this.bankColliders || []) this.game.removeDynCollider?.(c);
+      this.bankColliders = [];
+      this.bankVaultCollider = null;
+      this.scene.remove(this.bankInterior);
+      this.bankInterior = null;
+      this.bankVaultDoorMesh = null;
+    }
+    if (this.active) this.active.heist = null;
+  }
   removeGuest() {
     if (this.active?.guest) { this.scene.remove(this.active.guest.mesh); this.active.guest = null; }
   }
@@ -360,6 +643,8 @@ export class MissionRunner {
     g.setPinnedWanted(null);   // the finale's pin never outlives its chapter
     if (a.rico) g.removeVehicle(a.rico);
     if (a.guest) { this.scene.remove(a.guest.mesh); a.guest = null; }
+    if (a.partner) { this.scene.remove(a.partner.mesh); a.partner = null; }
+    this.teardownHeist();
     if (a.thugs) { for (const t of a.thugs) this.scene.remove(t.mesh); a.thugs = []; }
     g.missionCleanup?.();
     // the Dome RS goes back to the world only if Dario never took it
@@ -375,9 +660,12 @@ export class MissionRunner {
   complete() {
     const g = this.game;
     const def = this.active.def;
+    // heist rule: a hurt hostage costs the chapter's REP bonus, never the pay
+    const noRep = def.id === 'kingdom' && !!this.active.heist?.hostageHurt;
     this.cleanupActive();
     this.active = null;
-    g.markMissionDone(def.id);
+    if (noRep && g.markMissionDoneNoRep) g.markMissionDoneNoRep(def.id);
+    else g.markMissionDone(def.id);
     g.addCash(def.reward);
     if (def.finalBanner) {
       g.banner(def.finalBanner.title, `${def.finalBanner.sub} (+$${def.reward.toLocaleString()})`);
@@ -403,6 +691,9 @@ Object.assign(MissionRunner.prototype, {
     const g = this.game;
     const p = g.playerState();
     const def = a.def;
+    // the fence ambush: the moment the fight stage opens, Val takes the wheel
+    if (def.id === 'fence' && a.stage === 2 && !a.switched) { a.switched = true; g.onFenceSwitch?.(); }
+    if (a.partner) animatePerson(a.partner.mesh, this.time * 1.2, false);   // prologue partner idles in the room
     // the Dome RS must survive its own chapter
     if (a.stolenCar && a.stolenCar.dead) {
       this.fail('The Velocity RS is wrecked. Sal wanted it unscratched — the deal is off.');
@@ -479,6 +770,108 @@ Object.assign(MissionRunner.prototype, {
       const alive = this.thugsAlive();
       g.objective(`${tag} · ${stage.label} — ${alive} still standing`);
       if (alive === 0 && (a.thugs?.length || 0) > 0) arrive();
+      return;
+    }
+    if (stage.type === 'talk') {
+      // heist prologue: stand with your partner, talk it through with F
+      if (a.talkDone) { arrive(); return; }
+      const near = dist2d(p.x, p.z, stage.x, stage.z) < stage.r;
+      g.objective(a.dialogue
+        ? `${tag} · Percakapan dengan partner — tekan F untuk lanjut (${(a.dialogueIdx || 0) + 1}/${def.dialogue.length})`
+        : `${tag} · ${stage.label}${near ? ' — tekan F untuk bicara' : ''}`);
+      return;
+    }
+    if (stage.type === 'heist') {
+      const H = a.heist;
+      if (!H) return;
+      const inside = this.playerInsideBank();
+      const lobby = this.inLobby();
+      // bailed out mid-job (wasted / busted / wandered off)? reset to the door
+      if ((H.step === 'control' || H.step === 'drill' || H.step === 'bags' || H.step === 'exit') && !inside && dist2d(p.x, p.z, BANK_DOOR.x, BANK_DOOR.z) > 25) {
+        this.clearHeistCrew();
+        H.step = 'enter'; H.fear = 0; H.drillT = 0; H.bagsGot = 0; H.stage3 = H.stage4 = false;
+        if (this.bankVaultDoorMesh) this.bankVaultDoorMesh.position.y = 1.6;
+        if (!this.bankVaultCollider) {
+          this.bankVaultCollider = { minX: 56.8, maxX: 63.2, minZ: 1005.6, maxZ: 1006.4 };
+          g.addDynCollider?.(this.bankVaultCollider); this.bankColliders.push(this.bankVaultCollider);
+        }
+        g.banner('Back to the bank', 'You slipped away mid-job — walk back in and finish it.');
+      }
+      // hostages: crouched, hands up, trembling — posed every frame
+      for (const hst of H.hostages) {
+        const u = hst.mesh.userData;
+        if (hst.down) {
+          hst.fallA = Math.min(1, (hst.fallA || 0) + dt * 4);
+          hst.mesh.rotation.x = -Math.PI / 2 * hst.fallA * 0.96;
+          hst.mesh.position.set(hst.x, 0.22, hst.z);
+          continue;
+        }
+        hst.mesh.position.set(hst.x, -0.12 + Math.sin(this.time * 7 + hst.phase) * 0.008, hst.z);
+        u.armL.position.y = 1.52; u.armR.position.y = 1.52;
+        u.armL.rotation.z = 0.55; u.armR.rotation.z = -0.55;
+        u.legL.rotation.x = 0.9; u.legR.rotation.x = 0.9;
+      }
+      // the partner works the vault while the drill step runs
+      if (H.partner) {
+        H.partner.mesh.position.set(H.partner.x, 0.22, H.partner.z);
+        H.partner.mesh.rotation.y = 0;
+        if (H.step === 'drill') {
+          const u = H.partner.mesh.userData;
+          u.armR.rotation.x = -1.2 + Math.sin(this.time * 31) * 0.08;   // drill judder
+          u.armL.rotation.x = -1.1;
+          if (Math.random() < dt * 6) g.fxSpark?.(60 + (Math.random() - 0.5) * 0.8, 1.1, 1005.3);
+        }
+      }
+      const steps = this.heistSteps();
+      const checklist = steps.map((s) => `${s.state === 'done' ? '✓' : s.state === 'active' ? '▶' : '·'} ${s.label}`).join('  ');
+      if (H.step === 'goto') {
+        g.objective(`${tag} · HEIST — ${checklist}`);
+        if (dist2d(p.x, p.z, BANK_DOOR.x, BANK_DOOR.z) < stage.r) { H.step = 'enter'; g.banner('The Harbor Bank', 'Festival cash, one vault, two legends. Walk in calm — F at the door.'); }
+      } else if (H.step === 'enter') {
+        g.objective(`${tag} · HEIST — ${checklist} · (F di pintu untuk masuk)`);
+      } else if (H.step === 'control') {
+        if (lobby) H.controlT += dt;
+        g.objective(`${tag} · HEIST — ${checklist} · kendalikan lobi… ${Math.min(100, Math.round(H.controlT / 2.5 * 100))}%`);
+        if (H.controlT >= 2.5) {
+          H.step = 'drill';
+          g.setWantedMin(2);
+          g.banner('The drill bites!', 'Alarm\'s tripped — Harbor PD is rolling. Keep the lobby calm while your partner works.');
+          g.onBeat?.('drill');
+        }
+      } else if (H.step === 'drill') {
+        if (lobby) H.fear = Math.max(0, H.fear - 10 * dt);
+        else H.fear = Math.min(100, H.fear + 4.5 * dt);
+        if (H.fear < 100) {
+          H.drillT += dt;
+          const f = H.drillT / H.drillTotal;
+          if (f >= 0.5 && !H.stage3) { H.stage3 = true; g.setWantedMin(3); g.banner('Halfway through the door', 'More units outside — three stars. Hold the lobby.'); }
+          if (f >= 0.85 && !H.stage4) { H.stage4 = true; g.setWantedMin(4); g.banner('Nearly there…', 'Four stars. The vault is groaning — seconds now.'); }
+          if (f >= 1) {
+            H.step = 'bags';
+            this.openVault();
+            g.banner('VAULT OPEN!', 'Grab the three cash bags — then out the front and GONE.');
+            g.onBeat?.('vault');
+          }
+        }
+        H.warnCd -= dt;
+        if (H.fear >= 100 && H.warnCd <= 0) { H.warnCd = 6; g.banner('The lobby is panicking!', 'Fear is maxed — the drill stalls. Get back into the lobby and calm them down!'); }
+        g.objective(`${tag} · HEIST — ${checklist} · 🔩 bor ${Math.floor(Math.min(1, H.drillT / H.drillTotal) * 100)}% · 😨 takut ${Math.round(H.fear)}%`);
+      } else if (H.step === 'bags') {
+        for (const b of H.bags) {
+          if (b.taken) continue;
+          b.mesh.rotation.y += dt * 2;
+          if (dist2d(p.x, p.z, b.x, b.z) < 1.7) {
+            b.taken = true; b.mesh.visible = false; H.bagsGot++;
+            g.banner(`Bag ${H.bagsGot}/3 secured`, H.bagsGot >= 3 ? 'That\'s everything — out the front door!' : 'Keep them coming.');
+          }
+        }
+        g.objective(`${tag} · HEIST — ${checklist} · 💰 tas ${H.bagsGot}/3`);
+        if (H.bagsGot >= 3) H.step = 'exit';
+      } else if (H.step === 'exit') {
+        g.objective(`${tag} · HEIST — ${checklist} · keluar lewat pintu depan (F)`);
+      } else if (H.step === 'gone') {
+        arrive();
+      }
       return;
     }
     if (stage.type === 'coldpoint') {
