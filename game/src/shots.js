@@ -35,10 +35,40 @@ export function stageShot(name, api) {
     return true;
   }
   if (name === 'foot') {
-    // On foot at the head of Lola's Quay: pier, stalls, lighthouse, boats.
-    api.setDaylight(0.3);
-    api.teleport(188, 202, 0);
-    api.setCamera(179, 5.5, 183, 193, 1.5, 234);   // down the pier: stalls, boats, lighthouse
+    // Beachfront: armed on the promenade, sand + umbrellas + ocean ahead.
+    api.setDaylight(0.38);
+    api.grantWeapon('pistol');
+    api.equipWeapon('pistol');
+    api.teleport(30, 200, 0);
+    api.setCamera(21, 3.4, 187, 36, 1.0, 216);   // over the promenade: Dario, the sand strip, the sea
+    return true;
+  }
+  if (name === 'shop') {
+    // Marco's alley in Harbor Industrial, shop overlay open.
+    api.setDaylight(0.5);
+    api.teleport(358, 101.5, Math.PI);
+    api.openShop();
+    return true;
+  }
+  if (name === 'wheel') {
+    // On foot on the promenade, pistol + shotgun in the locker; the capture
+    // script holds Q to open the weapon wheel and highlights a slot.
+    api.setDaylight(0.38);
+    api.grantWeapon('pistol');
+    api.grantWeapon('shotgun');
+    api.equipWeapon('pistol');
+    api.teleport(30, 200, 0);
+    api.setCamera(21.5, 3.2, 187, 34, 1.1, 210);   // player mid-frame under the wheel, beach + sea beyond
+    return true;
+  }
+  if (name === 'duo') {
+    // DUO chapter 1 just started: switch campaigns (staging only, via the
+    // debug hook), then start 'Fresh Air' — the runner banners the chapter
+    // itself. Rafa waits by Val at the Coastal Correctional gate.
+    api.setDaylight(0.45);
+    window.__game.startCampaign('duo', true);
+    api.startMission('freshair');
+    api.setCamera(-243, 4.5, 175, -224, 1.2, 161);   // from the coast road: the pair at the gate, city behind
     return true;
   }
   if (name === 'mission') {

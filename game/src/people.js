@@ -71,28 +71,68 @@ export function loopPoint(loop, s) {
 }
 
 export class PedestrianSystem {
-  constructor(scene, loops, rng, count) {
+  constructor(scene, loops, rng, count, sunSpots = []) {
     this.scene = scene;
     this.loops = loops;
     this.rng = rng;
     this.peds = [];
     this.time = 0;
+    // PLUS: beach life — the first peds are assigned to the line loops
+    // (Ocean Drive sidewalk, promenade, the sand walks, the quay) so the
+    // waterfront is populated; three of the promenade walkers are joggers.
+    const lineLoops = loops.filter((l) => l.type === 'line');
+    const rectLoops = loops.filter((l) => l.type !== 'line');
+    const assignment = [];
     for (let i = 0; i < count; i++) {
-      const loop = loops[i % loops.length];
+      if (i < 18 && lineLoops.length) assignment.push(lineLoops[i % lineLoops.length]);
+      else assignment.push(rectLoops.length ? rectLoops[i % rectLoops.length] : loops[i % loops.length]);
+    }
+    for (let i = 0; i < count; i++) {
+      const loop = assignment[i];
       const mesh = makePerson(rng);
       scene.add(mesh);
       const per = loop.type === 'line' ? Math.hypot(loop.x2 - loop.x1, loop.z2 - loop.z1) * 2 : 4 * (loop.hw + loop.hd);
+      const isPromenade = loop.type === 'line' && loop.z1 === 178;
+      const jog = isPromenade && i % 6 === 2;
       const ped = {
-        mesh, loop, s: rng() * per, speed: randRange(rng, 1.1, 1.7),
+        mesh, loop, s: rng() * per, speed: jog ? randRange(rng, 3.1, 3.9) : randRange(rng, 1.1, 1.7),
         x: 0, z: 0, heading: 0, phase: rng() * 6,
         state: 'stroll', timer: 0, partner: null, chatCooldown: randRange(rng, 4, 20),
         fleeX: 0, fleeZ: 0, fleeUntil: -1,
+        health: 100, downT: 0, fallA: 0, jog,
       };
       const p = loopPoint(loop, ped.s);
       ped.x = p.x; ped.z = p.z; ped.heading = p.heading;
       ped.baseY = (loop.type === 'line' && loop.x1 === 190) ? 0.55 : 0.22;   // quay deck vs pavement
       mesh.position.set(p.x, ped.baseY, p.z);
       this.peds.push(ped);
+    }
+    // PLUS: static sunbathers lying on the towel spots the city laid out.
+    this.sunbathers = [];
+    for (const spot of sunSpots) {
+      const mesh = makePerson(rng);
+      mesh.rotation.order = 'YXZ';
+      mesh.rotation.y = spot.rot || 0;
+      mesh.rotation.x = -Math.PI / 2 + 0.06;   // flat on their back
+      mesh.position.set(spot.x, 0.34, spot.z);
+      scene.add(mesh);
+      this.sunbathers.push({ mesh, phase: rng() * 6 });
+    }
+  }
+  /** PLUS: gunfire / shove damage. Non-gory: hurt peds flee; floored peds
+   *  tip over, lie still a few seconds, then scramble up and run. */
+  hurt(ped, dmg, fromX, fromZ) {
+    if (ped.state === 'down') return;
+    ped.health -= dmg;
+    if (ped.partner) { ped.partner.state = 'stroll'; ped.partner.partner = null; ped.partner = null; }
+    if (ped.health <= 0) {
+      ped.state = 'down';
+      ped.downT = randRange(this.rng, 6, 10);
+      ped.fallA = 0;
+    } else {
+      ped.state = 'flee';
+      ped.fleeX = fromX; ped.fleeZ = fromZ; ped.fleeVX = 0; ped.fleeVZ = 0;
+      ped.fleeUntil = this.time + 3.4;
     }
   }
   /** Register a threat at (x, z) moving (vx, vz): nearby peds scatter. */
@@ -110,6 +150,23 @@ export class PedestrianSystem {
     this.time += dt;
     const rng = this.rng;
     for (const ped of this.peds) {
+      if (ped.state === 'down') {
+        // tipped over: ease onto the ground, lie still, then recover + flee
+        ped.fallA = Math.min(1, ped.fallA + dt * 4);
+        ped.mesh.rotation.x = -Math.PI / 2 * ped.fallA * 0.96;
+        ped.downT -= dt;
+        if (ped.downT <= 0) {
+          ped.health = 45;
+          ped.mesh.rotation.x = 0;
+          ped.state = 'flee';
+          ped.fleeX = ped.x + randRange(rng, -4, 4); ped.fleeZ = ped.z + randRange(rng, -4, 4);
+          ped.fleeVX = 0; ped.fleeVZ = 0;
+          ped.fleeUntil = this.time + 3;
+        }
+        ped.mesh.position.x = ped.x; ped.mesh.position.z = ped.z;
+        ped.mesh.position.y = ped.baseY;
+        continue;
+      }
       if (ped.chatCooldown > 0) ped.chatCooldown -= dt;
       if (ped.state === 'flee') {
         // run away from the threat, biased against its line of travel
@@ -149,8 +206,8 @@ export class PedestrianSystem {
         ped.heading = turnToward(ped.heading, p.heading, dt * 8);
         ped.phase += dt * 6.4;
         animatePerson(ped.mesh, ped.phase, true);
-        // bump into a neighbour? maybe stop for a chat
-        if (ped.chatCooldown <= 0) {
+        // bump into a neighbour? maybe stop for a chat (joggers never stop)
+        if (ped.chatCooldown <= 0 && !ped.jog) {
           for (const other of this.peds) {
             if (other === ped || other.state !== 'stroll' || other.chatCooldown > 0) continue;
             if (dist2d(ped.x, ped.z, other.x, other.z) < 2.1) {
@@ -168,6 +225,11 @@ export class PedestrianSystem {
       ped.mesh.position.x = ped.x; ped.mesh.position.z = ped.z;
       ped.mesh.position.y = ped.baseY + ped.mesh.position.y;   // walk bob rides on the surface height
       ped.mesh.rotation.y = ped.heading;
+      // PLUS: nobody wanders into the sea — off the quay, the sand ends here
+      const onPier = ped.loop.type === 'line' && ped.loop.x1 === 190;
+      if (!onPier && ped.z > 234) { ped.z = 234; ped.mesh.position.z = 234; }
     }
+    // sunbathers just breathe
+    for (const s of this.sunbathers) s.mesh.position.y = 0.34 + Math.sin(this.time * 1.1 + s.phase) * 0.012;
   }
 }

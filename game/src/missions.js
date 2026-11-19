@@ -5,9 +5,10 @@
 // demand a cold trail, and two races against Rico — and pays into the chain:
 // 250 → 1050 → 2250 → 3750 → 5250 → 6350 → 7250 → 8550 → 10750 → 13350 → 17350.
 import * as THREE from 'three';
-import { REWARDS, TUNING, CITY, modelById } from './config.js';
-import { clamp, angleDelta, dist2d } from './random.js';
+import { REWARDS, DUO_REWARDS, TUNING, CITY, modelById } from './config.js';
+import { clamp, angleDelta, dist2d, makeRng } from './random.js';
 import { Vehicle } from './cars.js';
+import { makePerson, animatePerson } from './people.js';
 
 export const MISSION_DEFS = [
   {
@@ -134,8 +135,105 @@ export const MISSION_DEFS = [
 ];
 MISSION_DEFS.forEach((d, i) => { d.chapter = i + 1; });
 
-function makeBeacon(color) {
-  const grp = new THREE.Group();
+// ============================================================================
+// KINGTIDE: DUO — Story Part 2. Valeria "Val" Cruz, getaway driver just out
+// after taking the fall for her old crew, and Rafael "Rafa" Duarte, the
+// partner who waited. Seven chapters, alternating leads, one mid-mission
+// switch. All people, places and plot are original to Solmarina.
+// Duo cash chain: 150 → 750 → 1650 → 3450 → 5850 → 7350 → 8550 → 13550.
+// ============================================================================
+export const DUO_DEFS = [
+  {
+    id: 'freshair', name: 'Fresh Air', reward: DUO_REWARDS.freshair, lead: 'rafa',
+    giver: 'Rafael "Rafa" Duarte',
+    intro: 'Five years Val took the fall for the old crew. Today the gate opens — and Rafa is waiting, engine running.',
+    start: { x: -228, z: 166 },
+    guestNpc: { x: -234, z: 158, outfit: { shirt: 0xc22e4a, pants: 0x23272e, hair: 0x14100c, skin: 0xd9a066 } },
+    stages: [
+      { x: -234, z: 158, r: 7, label: 'Pick up Val at the gate', hook: 'valPickup', heatMin: 2 },
+      { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Shake the tail and reach the Palm Row safehouse', escape: true },
+    ],
+  },
+  {
+    id: 'firstscore', name: 'First Score', reward: DUO_REWARDS.firstscore, lead: 'val',
+    giver: 'Valeria "Val" Cruz',
+    intro: 'Val, one hour out: "Prison taught me patience, not poverty. The marina cash boxes. Tonight. My way."',
+    start: { x: 190, z: 208 },
+    stages: [
+      { x: 185, z: 246, r: 8, label: 'Bag 1: the fish stalls', heat: 1 },
+      { x: 197, z: 266, r: 8, label: 'Bag 2: the moored boats', heat: 1 },
+      { x: 190, z: 300, r: 8, label: 'Bag 3: the pier head', heat: 1 },
+      { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Escape to the safehouse — cold trail', escape: true },
+    ],
+  },
+  {
+    id: 'keys', name: 'Keys to the Bay', reward: DUO_REWARDS.keys, lead: 'rafa',
+    giver: 'Rafael "Rafa" Duarte',
+    intro: 'Rafa has a buyer across the bay with cash and no questions: "One azure Velocity RS, the Azure GT. It sleeps by the Dome."',
+    start: { x: 104, z: -96 },
+    timer: 170, timerLabel: 'buyer',
+    spawnCar: { modelId: 'velocity', paint: 0x2e86de, x: 131, z: -100, heading: 0 },
+    stages: [
+      { x: 131, z: -100, r: 12, label: 'Steal the azure Velocity RS — the Azure GT', steal: true, heatMin: 2 },
+      { x: 380, z: 56, r: 12, label: 'Deliver the Azure GT to the buyer in Harbor Industrial', needsStolenCar: true },
+    ],
+  },
+  {
+    id: 'hotcargo', name: 'Hot Cargo', reward: DUO_REWARDS.hotcargo, lead: 'val',
+    giver: 'Valeria "Val" Cruz',
+    intro: 'A freight-yard cash truck, a sleepy route, one case. Val: "Stop it, pop it, vanish. I will be the wind."',
+    start: { x: 322, z: 120 },
+    spawnCar: { modelId: 'mule', paint: 0x707880, x: 336, z: 148, heading: Math.PI / 2 },
+    stages: [
+      { x: 336, z: 148, r: 11, label: 'Find the cash truck in the freight yard' },
+      { x: 336, z: 148, r: 5, label: 'Grab the case from the truck — on foot', onFoot: true, heatMin: 4 },
+      { x: 415, z: 112, r: 11, label: 'Drop the case at the east warehouse — out of sight', losdrop: true },
+    ],
+  },
+  {
+    id: 'fence', name: 'The Fence', reward: DUO_REWARDS.fence, lead: 'rafa',
+    giver: 'Rafael "Rafa" Duarte',
+    intro: 'A fence named Otto buys hot paper between the container stacks. Rafa trusts him. Rafa trusts everybody once.',
+    start: { x: 404, z: 66 },
+    stages: [
+      { x: 415, z: 84, r: 6, label: 'Meet Otto the fence between the stacks', hook: 'fenceAmbush' },
+      { type: 'fight', x: 415, z: 84, r: 30, label: 'Survive the ambush' },
+      { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, r: 10, label: 'Val drives: escape to the safehouse', escape: true },
+    ],
+  },
+  {
+    id: 'betrayal', name: 'Betrayal', reward: DUO_REWARDS.betrayal, lead: 'val',
+    giver: 'Valeria "Val" Cruz',
+    intro: 'Otto sold the route, the fence, everything. Sirens on every street — Val: "The lighthouse. We go dark where the harbor ends."',
+    start: { x: 64, z: 103 },
+    stingAtStart: true,
+    stages: [
+      { x: 190, z: 306, r: 9, label: 'Run for the lighthouse point', hook: 'unpin' },
+      { type: 'coldpoint', x: 190, z: 306, r: 55, label: 'Stay near the lighthouse until the trail is cold' },
+    ],
+  },
+  {
+    id: 'kingdom', name: 'Kingdom of Two', reward: DUO_REWARDS.kingdom, lead: 'rafa',
+    giver: 'Val & Rafa',
+    intro: 'Festival night. The harbor cash office counts the whole season\'s take — and the duo plans to retire on it.',
+    start: { x: 392, z: 30 },
+    daylight: 0.85,
+    timer: 210, timerLabel: 'bag',
+    stages: [
+      { x: 428, z: 24, r: 10, label: 'Bag 1: the cash office front', heat: 1 },
+      { x: 415, z: 8, r: 10, label: 'Bag 2: the office dock side', heat: 1, heatMin: 5 },
+      { x: 190, z: 250, r: 10, label: 'Escape to Lola\'s Quay — cold trail to finish', escape: true },
+    ],
+    finalBanner: { title: '👑 Kingdom of Two', sub: 'Dario tips his glass from the next table: "Harbor\'s big enough for two crowns." Val & Rafa run the bay now — together.' },
+  },
+];
+DUO_DEFS.forEach((d, i) => { d.chapter = i + 1; });
+
+let npcSeed = 4242;
+/** A throwaway seeded rng for one-off NPC figures (guests, thugs). */
+function makePersonRng() { return makeRng(npcSeed += 7919); }
+
+function makeBeacon(color) {  const grp = new THREE.Group();
   const ringMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
   const ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3, 30), ringMat);
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.35; grp.add(ring);
@@ -148,13 +246,14 @@ function makeBeacon(color) {
 
 export class MissionRunner {
   /** game: the facade from main.js (playerState, addCash, setWantedMin, banner, vehicles...). */
-  constructor(scene, game) {
+  constructor(scene, game, defs = MISSION_DEFS) {
     this.scene = scene;
     this.game = game;
+    this.defs = defs;
     this.active = null;        // { def, stage, timer, rico, stolenCar... }
     this.time = 0;
     this.startMarkers = new Map();
-    for (const def of MISSION_DEFS) {
+    for (const def of defs) {
       const b = makeBeacon(0xffc93c);
       b.position.set(def.start.x, 0, def.start.z);
       scene.add(b);
@@ -164,10 +263,10 @@ export class MissionRunner {
     this.targetBeacon.visible = false;
     scene.add(this.targetBeacon);
   }
-  defById(id) { return MISSION_DEFS.find((d) => d.id === id); }
+  defById(id) { return this.defs.find((d) => d.id === id); }
   isDone(id) { return this.game.isMissionDone(id); }
   /** The next chapter in the story: the first one not yet completed. */
-  nextChapter() { return MISSION_DEFS.find((d) => !this.isDone(d.id)) || null; }
+  nextChapter() { return this.defs.find((d) => !this.isDone(d.id)) || null; }
   isUnlocked(def) { return this.nextChapter() === def; }
   chapterTag(def) { return `Chapter ${def.chapter} — ${def.name}`; }
   /** The chapter whose start beacon the player stands at, if it is unlocked. */
@@ -194,6 +293,8 @@ export class MissionRunner {
       return false;
     }
     if (this.active) return false;
+    if (def.lead) g.setLead?.(def.lead);
+    if (def.daylight !== undefined) g.setDaylight?.(def.daylight);
     if (def.race) {
       const p = g.playerState();
       if (!p.inCar) { g.banner(this.chapterTag(def), 'You need a car to race. Bring one to the beacon.'); return false; }
@@ -214,10 +315,43 @@ export class MissionRunner {
         g.addVehicle(v);
         this.active.stolenCar = v;
       }
+      // PLUS (DUO): a waiting guest NPC + a sting that's already sprung
+      if (def.guestNpc) {
+        const mesh = makePerson(makePersonRng(), def.guestNpc.outfit);
+        mesh.position.set(def.guestNpc.x, def.guestNpc.x === 190 ? 0.55 : 0.22, def.guestNpc.z);
+        mesh.rotation.y = Math.PI / 2;
+        this.scene.add(mesh);
+        this.active.guest = { mesh, x: def.guestNpc.x, z: def.guestNpc.z };
+      }
+      if (def.stingAtStart) { this.active.stingFired = true; g.setPinnedWanted(5); }
       g.banner(this.chapterTag(def), def.intro);
     }
     this.refreshMarkers();
     return true;
+  }
+  /** PLUS (DUO): the fence-ambush muscle. Thugs run the player down and
+   *  swing; they go down like anyone else when shot (non-gory). */
+  spawnThugs(x, z, n) {
+    const a = this.active;
+    if (!a) return;
+    a.thugs = a.thugs || [];
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2 + 0.6;
+      const tx = x + Math.sin(ang) * 7, tz = z + Math.cos(ang) * 7;
+      const mesh = makePerson(makePersonRng(), { shirt: 0x2b2b30, pants: 0x1c1c20, hair: 0x0c0c0c, skin: 0xa06a35 });
+      mesh.position.set(tx, 0.22, tz);
+      this.scene.add(mesh);
+      a.thugs.push({ mesh, x: tx, z: tz, heading: 0, phase: i * 2, health: 70, state: 'chase', downT: 0, fallA: 0 });
+    }
+  }
+  hurtThug(t, dmg) {
+    if (t.state === 'down') return;
+    t.health -= dmg;
+    if (t.health <= 0) { t.state = 'down'; t.downT = 9999; t.fallA = 0; }
+  }
+  thugsAlive() { return (this.active?.thugs || []).filter((t) => t.state !== 'down').length; }
+  removeGuest() {
+    if (this.active?.guest) { this.scene.remove(this.active.guest.mesh); this.active.guest = null; }
   }
   cleanupActive() {
     const g = this.game;
@@ -225,6 +359,9 @@ export class MissionRunner {
     if (!a) return;
     g.setPinnedWanted(null);   // the finale's pin never outlives its chapter
     if (a.rico) g.removeVehicle(a.rico);
+    if (a.guest) { this.scene.remove(a.guest.mesh); a.guest = null; }
+    if (a.thugs) { for (const t of a.thugs) this.scene.remove(t.mesh); a.thugs = []; }
+    g.missionCleanup?.();
     // the Dome RS goes back to the world only if Dario never took it
     if (a.stolenCar && a.stolenCar !== g.playerCar()) g.removeVehicle(a.stolenCar);
   }
@@ -271,6 +408,31 @@ Object.assign(MissionRunner.prototype, {
       this.fail('The Velocity RS is wrecked. Sal wanted it unscratched — the deal is off.');
       return;
     }
+    // PLUS (DUO): ambush muscle — thugs close in and swing at the player
+    if (a.thugs) {
+      const world = g.world();
+      for (const t of a.thugs) {
+        if (t.state === 'down') {
+          t.fallA = Math.min(1, t.fallA + dt * 4);
+          t.mesh.rotation.x = -Math.PI / 2 * t.fallA * 0.96;
+          t.mesh.position.set(t.x, 0.22, t.z);
+          continue;
+        }
+        const d = dist2d(t.x, t.z, p.x, p.z);
+        t.heading += Math.max(-dt * 7, Math.min(dt * 7, ((Math.atan2(p.x - t.x, p.z - t.z) - t.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+        if (d > 1.5) {
+          t.x += Math.sin(t.heading) * 4.3 * dt;
+          t.z += Math.cos(t.heading) * 4.3 * dt;
+          t.phase += dt * 11;
+          animatePerson(t.mesh, t.phase, true);
+        } else {
+          animatePerson(t.mesh, t.phase, false);
+          if (!p.inCar) g.hurtPlayer(7 * dt);   // fists, up close
+        }
+        t.mesh.position.set(t.x, 0.22, t.z);
+        t.mesh.rotation.y = t.heading;
+      }
+    }
     // the finale: once the sting has sprung, the heat is pinned at five stars
     if (def.pinWanted && a.stingFired && g.wantedLevel() < 5) g.setWantedMin(5);
     // per-leg pressure in the finale
@@ -297,6 +459,7 @@ Object.assign(MissionRunner.prototype, {
       if (a.timer <= 0) { this.fail(def.id === 'cashrun' ? 'The trail went cold and the money scattered. Sal will want a faster run.' : 'Out of time. The drops will wait for another run.'); return; }
     }
     const arrive = () => {
+      if (stage.hook) g.stageHook?.(stage.hook, this);
       if (stage.pickup) g.banner('Package on board', 'Now get moving — and watch for Harbor PD.');
       if (stage.sting) {
         a.stingFired = true;
@@ -312,6 +475,21 @@ Object.assign(MissionRunner.prototype, {
       a.stage++;
       if (a.stage >= def.stages.length) this.complete();
     };
+    if (stage.type === 'fight') {
+      const alive = this.thugsAlive();
+      g.objective(`${tag} · ${stage.label} — ${alive} still standing`);
+      if (alive === 0 && (a.thugs?.length || 0) > 0) arrive();
+      return;
+    }
+    if (stage.type === 'coldpoint') {
+      const at = dist2d(p.x, p.z, stage.x, stage.z) < stage.r;
+      const cold = g.wantedLevel() <= 0.05;
+      g.objective(at
+        ? (cold ? `${tag} · The trail is cold…` : `${tag} · Go dark near the lighthouse — break sight, let the search die (${'★'.repeat(Math.ceil(g.wantedLevel()))})`)
+        : `${tag} · ${stage.label}`);
+      if (at && cold) arrive();
+      return;
+    }
     if (stage.steal) {
       if (!def.timer) g.objective(`${tag} · ${stage.label}`);
       if (g.playerCar() && g.playerCar() === a.stolenCar) {
@@ -354,6 +532,7 @@ Object.assign(MissionRunner.prototype, {
     }
     if (dist2d(p.x, p.z, stage.x, stage.z) < stage.r) {
       if (stage.needsStolenCar && g.playerCar() !== a.stolenCar) return;   // wrong car: no delivery
+      if (stage.onFoot && p.inCar) { g.objective(`${tag} · ${stage.label} — on foot!`); return; }
       arrive();
     }
   },
@@ -407,9 +586,9 @@ Object.assign(MissionRunner.prototype, {
   },
   refreshMarkers() {
     const next = this.nextChapter();
-    for (const def of MISSION_DEFS) {
+    for (const def of this.defs) {
       const m = this.startMarkers.get(def.id);
-      m.visible = def === next && !this.active;   // only the unlocked chapter shows a beacon
+      m.visible = this.enabled !== false && def === next && !this.active;   // only the unlocked chapter of the active campaign shows
     }
     this.targetBeacon.visible = !!this.active;
   },

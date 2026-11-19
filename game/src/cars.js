@@ -127,11 +127,14 @@ export class Vehicle {
       this.events.push({ type: 'dead' });
     }
   }
-  /** ctrl: {throttle -1..1, steer -1..1, handbrake}. world: {colliders, vehicles, pier}. */
+  /** ctrl: {throttle -1..1, steer -1..1, handbrake, nitro}. world: {colliders, vehicles, pier}. */
   step(dt, ctrl, world) {
     const m = this.model;
     let top = m.topSpeed, accel = m.accel;
     if (this.health < TUNING.limpEngineHealth && !this.dead) { top *= 0.45; accel *= 0.5; }
+    // PLUS: nitro — a fat wedge of extra acceleration and a higher ceiling
+    this.nitroOn = !this.dead && !!ctrl.nitro && (ctrl.throttle || 0) > 0 && this.speed > 2;
+    if (this.nitroOn) { top *= 1.35; accel *= 2.05; }
     let throttle = this.dead ? 0 : clamp(ctrl.throttle || 0, -1, 1);
     if (this.dead) this.speed -= clamp(this.speed, -14 * dt, 14 * dt);   // roll to a stop
     if (throttle >= 0) this.speed += throttle * accel * dt;
@@ -191,6 +194,22 @@ export class Vehicle {
     this.updateFx(dt);
   }
   updateFx(dt) {
+    // PLUS: nitro exhaust flames — twin sprites at the tailpipes
+    if (this.nitroOn && !this.nitroFlames) {
+      this.nitroFlames = [];
+      for (const s of [-1, 1]) {
+        const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTexture(), color: 0x53b7ff, transparent: true, opacity: 0.85, depthWrite: false }));
+        f.position.set(s * this.model.wid * 0.28, 0.42, -this.model.len / 2 - 0.55);
+        this.mesh.add(f);
+        this.nitroFlames.push(f);
+      }
+    }
+    if (this.nitroFlames) {
+      for (const f of this.nitroFlames) {
+        f.visible = !!this.nitroOn;
+        if (this.nitroOn) { const s = 0.7 + Math.random() * 0.5; f.scale.set(0.5 * s, 0.42 * s, 1); }
+      }
+    }
     const wantsSmoke = this.health < TUNING.sickEngineHealth;
     if (wantsSmoke && !this.smoke) {
       const N = 16;

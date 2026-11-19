@@ -45,6 +45,13 @@ export class AudioEngine {
     const hGain = ctx.createGain(); hGain.gain.value = 0;
     hSrc.connect(hFil).connect(hGain).connect(this.master); hSrc.start();
     this.heliNodes = { hGain };
+    // nitro hiss: looped noise → bandpass → gain(0)
+    const nSrc = ctx.createBufferSource(); nSrc.buffer = this.noiseBuf; nSrc.loop = true;
+    const nFil = ctx.createBiquadFilter(); nFil.type = 'bandpass'; nFil.frequency.value = 1100; nFil.Q.value = 0.7;
+    const nGain = ctx.createGain(); nGain.gain.value = 0;
+    nSrc.connect(nFil).connect(nGain).connect(this.master); nSrc.start();
+    this.nitroNodes = { nGain };
+    this.radio = null;   // { station, timer, step, nextTime }
   }
   /** rpm01: 0..1 of the rev range; driving: whether the player is at the wheel. */
   setEngine(driving, rpm01) {
@@ -154,5 +161,118 @@ export class AudioEngine {
       g.gain.exponentialRampToValueAtTime(0.001, at + 0.3);
       o.connect(g).connect(this.master); o.start(at); o.stop(at + 0.32);
     });
+  }
+  // ------------------------------------------------------------ PLUS: guns
+  /** One synthesized gunshot; kind picks the body of the crack. */
+  shot(kind) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const spec = {
+      pistol: { dur: 0.11, lp: 2600, peak: 0.32, thump: 160 },
+      smg: { dur: 0.08, lp: 3000, peak: 0.22, thump: 190 },
+      shotgun: { dur: 0.24, lp: 1100, peak: 0.5, thump: 95 },
+      rifle: { dur: 0.1, lp: 2400, peak: 0.3, thump: 140 },
+      rpg: { dur: 0.4, lp: 700, peak: 0.4, thump: 70 },
+    }[kind] || { dur: 0.1, lp: 2400, peak: 0.3, thump: 150 };
+    const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    const fil = ctx.createBiquadFilter(); fil.type = 'lowpass'; fil.frequency.value = spec.lp;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(spec.peak, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + spec.dur);
+    src.connect(fil).connect(g).connect(this.master);
+    src.start(t); src.stop(t + spec.dur + 0.02);
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(spec.thump, t);
+    o.frequency.exponentialRampToValueAtTime(spec.thump * 0.5, t + spec.dur * 0.7);
+    og.gain.setValueAtTime(spec.peak * 0.5, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + spec.dur * 0.8);
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + spec.dur);
+  }
+  dryFire() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.value = 1200;
+    g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.05);
+  }
+  reloadSound(long = false) {
+    if (!this.ctx) return;
+    [0, long ? 0.34 : 0.22].forEach((off, i) => {
+      const ctx = this.ctx, t = ctx.currentTime + off;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = i ? 880 : 620;
+      g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.06);
+    });
+  }
+  explosion() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; src.playbackRate.value = 0.5;
+    const fil = ctx.createBiquadFilter(); fil.type = 'lowpass'; fil.frequency.value = 320;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.55, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    src.connect(fil).connect(g).connect(this.master); src.start(t); src.stop(t + 0.85);
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(28, t + 0.6);
+    og.gain.setValueAtTime(0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + 0.7);
+  }
+  setNitro(on) {
+    if (!this.ctx || !this.nitroNodes) return;
+    this.nitroNodes.nGain.gain.setTargetAtTime(on ? 0.06 : 0, this.ctx.currentTime, 0.06);
+  }
+  // ------------------------------------------------------------ PLUS: radio
+  // Three synthesized stations. A lookahead step sequencer walks a chord
+  // progression per station: bass on the roots, arps/pads/stabs on top.
+  static STATIONS = [
+    null,
+    { name: 'Neon Wave 104', bpm: 102, wave: 'sawtooth', lp: 900, vol: 0.05,
+      roots: [55, 43.65, 65.41, 49], arp: [220, 261.63, 329.63, 174.61, 220, 261.63, 196, 246.94, 293.66, 164.81, 196, 246.94] },
+    { name: 'Palm FM', bpm: 74, wave: 'triangle', lp: 1600, vol: 0.07,
+      roots: [65.41, 55, 43.65, 49], arp: [261.63, 329.63, 392, 493.88, 220, 261.63, 329.63, 174.61, 220, 293.66, 196, 246.94] },
+    { name: 'Rock Reef', bpm: 132, wave: 'square', lp: 2200, vol: 0.045,
+      roots: [41.2, 41.2, 49, 55], arp: [82.41, 82.41, 98, 110, 82.41, 82.41, 123.47, 98] },
+  ];
+  /** station: 0 = off, 1..3 = on. Safe to call every frame; no-ops on repeat. */
+  setRadio(station) {
+    if (!this.ctx) return;
+    const cur = this.radio ? this.radio.station : 0;
+    if (station === cur) return;
+    if (this.radio) { clearInterval(this.radio.timer); this.radio = null; }
+    if (!station) return;
+    const def = AudioEngine.STATIONS[station];
+    const r = this.radio = { station, def, step: 0, nextTime: this.ctx.currentTime + 0.06, timer: null };
+    const spb = 60 / def.bpm / 2;   // eighth notes
+    const tick = () => {
+      if (this.radio !== r) return;
+      const ctx = this.ctx;
+      while (r.nextTime < ctx.currentTime + 0.35) {
+        const s = r.step, t = r.nextTime;
+        const bar = Math.floor(s / 8) % 4;
+        const root = def.roots[bar];
+        const note = (freq, type, vol, dur, lpFreq) => {
+          const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+          o.type = type; o.frequency.value = freq;
+          f.type = 'lowpass'; f.frequency.value = lpFreq || def.lp;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + dur + 0.03);
+        };
+        if (s % 2 === 0) note(root * 2, 'triangle', def.vol * 1.5, spb * 1.8);         // bass pulse
+        if (station === 3) { if (s % 4 === 0) { note(root * 4, def.wave, def.vol, spb * 1.6); note(root * 6, def.wave, def.vol * 0.8, spb * 1.6); } }
+        else if (station === 2) { if (s % 8 === 0) for (const m of [4, 5, 6]) note(root * m, def.wave, def.vol * 0.5, spb * 7); }
+        else note(def.arp[s % def.arp.length], def.wave, def.vol, spb * 1.4);          // synthwave arp
+        if (station === 1 && s % 4 === 2) note(def.arp[(s * 3) % def.arp.length] * 2, 'sine', def.vol * 0.7, spb);
+        r.step++; r.nextTime += spb;
+      }
+    };
+    r.timer = setInterval(tick, 120);
+    tick();
   }
 }
