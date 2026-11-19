@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌴</text></svg>">
+<title>Vice Harbor — an open-world crime game in Solmarina</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #10131c; font-family: "Segoe UI", Verdana, sans-serif; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
+  .panel { background: rgba(10, 12, 22, 0.55); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 10px; backdrop-filter: blur(2px); }
+  #stats { position: absolute; top: 14px; left: 14px; padding: 10px 14px; min-width: 168px; }
+  #cash { font-size: 26px; font-weight: 800; color: #7be495; letter-spacing: 0.5px; text-shadow: 0 2px 6px rgba(0,0,0,0.6); transform-origin: left center; }
+  #cash.bump { animation: cashbump 0.38s ease-out; }
+  @keyframes cashbump { 0% { transform: scale(1.3); color: #ffe27a; } 100% { transform: scale(1); } }
+  #healthWrap { margin-top: 6px; height: 9px; background: rgba(255,255,255,0.18); border-radius: 5px; overflow: hidden; }
+  #health { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5e57, #ffb020); transition: width 0.2s; }
+  #stars { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 30px; letter-spacing: 6px; color: #ffd23e; text-shadow: 0 0 10px rgba(255, 170, 0, 0.8), 0 2px 4px rgba(0,0,0,0.7); }
+  #stars .off { color: rgba(255,255,255,0.22); text-shadow: none; }
+  #stars.cooling { animation: blink 0.7s steps(2) infinite; }
+  #stars.flash { animation: starflash 0.45s ease-out; }
+  @keyframes starflash { 0% { transform: translateX(-50%) scale(1.5); filter: brightness(2.2); } 100% { transform: translateX(-50%) scale(1); } }
+  #stars.hot { animation: hotpulse 0.55s ease-in-out infinite; color: #ff4040; text-shadow: 0 0 14px rgba(255, 40, 40, 0.95), 0 2px 4px rgba(0,0,0,0.7); }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  @keyframes hotpulse { 50% { transform: translateX(-50%) scale(1.14); } }
+  #mapBox { position: absolute; top: 14px; right: 14px; padding: 6px; text-align: center; }
+  #minimap { display: block; width: 218px; height: 218px; border-radius: 6px; }
+  #mapLabel { font-size: 11px; letter-spacing: 3px; color: #ffd9a0; margin-top: 4px; }
+  #objective { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); padding: 8px 18px; font-size: 17px; font-weight: 600; text-align: center; display: none; }
+  #objective small { display: block; font-size: 13px; color: #ffd9a0; font-weight: 500; }
+  #prompt { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); padding: 8px 16px; font-size: 16px; display: none; }
+  #prompt b { color: #ffd23e; }
+  #toast { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 800; letter-spacing: 1px; color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,0.75); opacity: 0; transition: opacity 0.3s; text-align: center; }
+  #speedo { position: absolute; right: 18px; bottom: 16px; padding: 8px 16px; text-align: right; display: none; }
+  #speed { font-size: 34px; font-weight: 800; }
+  #speedo small { display: block; color: #cfd8dc; font-size: 12px; letter-spacing: 1px; }
+  #vehicleName { color: #ffd9a0 !important; font-size: 13px !important; }
+  #damage { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 0, 0, 0.45) 100%); opacity: 0; transition: opacity 0.15s; }
+  #lowHealth { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 52%, rgba(190, 0, 0, 0.55) 100%); opacity: 0; }
+  #lowHealth.on { animation: lowhp 1.15s ease-in-out infinite; }
+  @keyframes lowhp { 0%, 100% { opacity: 0.12; } 50% { opacity: 0.6; } }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: linear-gradient(180deg, rgba(24, 10, 34, 0.82), rgba(8, 20, 38, 0.88)); z-index: 5; }
+  #titleScreen { background: linear-gradient(180deg, rgba(24, 10, 34, 0.55), rgba(8, 20, 38, 0.42) 55%, rgba(8, 12, 24, 0.78)); cursor: pointer; }
+  #titleScreen .hint { font-size: 15px; letter-spacing: 3px; color: #ffd9a0; animation: blink 1.6s steps(2) infinite; }
+  #pauseScreen { display: none; background: rgba(8, 10, 20, 0.72); }
+  #pauseScreen h1 { font-size: 44px; }
+  #pauseScreen label { font-size: 14px; letter-spacing: 2px; color: #ffd9a0; }
+  #brightSlider { pointer-events: auto; width: 260px; accent-color: #ffb020; margin: 8px 0 4px; }
+  .screen h1 { font-family: Georgia, serif; font-size: 64px; margin: 0; letter-spacing: 2px; background: linear-gradient(90deg, #ff5e78, #ffb020, #22e6c8); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+  .screen h2 { font-weight: 500; color: #ffd9a0; margin: 6px 0 14px; letter-spacing: 4px; }
+  .screen p { max-width: 560px; line-height: 1.5; color: #e8ecf1; padding: 0 20px; }
+  .screen .controls { font-size: 14px; color: #b9c6d2; line-height: 1.9; }
+  .screen button { pointer-events: auto; margin: 10px 6px 0; padding: 12px 30px; font-size: 18px; font-weight: 700; color: #10131c; background: linear-gradient(90deg, #ffb020, #ff5e78); border: 0; border-radius: 24px; cursor: pointer; }
+  .screen button:hover { filter: brightness(1.12); }
+  #endScreen { display: none; background: rgba(10, 4, 8, 0.78); }
+  #endTitle { font-size: 58px; letter-spacing: 6px; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="Vice Harbor: explore Solmarina on foot and by car"></canvas>
+
+<div id="hud">
+  <div id="stats" class="panel">
+    <div id="cash">$0</div>
+    <div id="healthWrap"><div id="health"></div></div>
+  </div>
+  <div id="stars" aria-label="Wanted level"></div>
+  <div id="mapBox" class="panel">
+    <canvas id="minimap" width="218" height="218"></canvas>
+    <div id="mapLabel">SOLMARINA</div>
+  </div>
+  <div id="objective" class="panel"></div>
+  <div id="prompt" class="panel"></div>
+  <div id="toast"></div>
+  <div id="speedo" class="panel"><span id="speed">0</span> <small>KM/H</small><small id="vehicleName"></small></div>
+</div>
+<div id="damage"></div>
+<div id="lowHealth"></div>
+
+<div id="titleScreen" class="screen">
+  <h1>VICE HARBOR</h1>
+  <h2>S O L M A R I N A</h2>
+  <p id="storyText"></p>
+  <p class="hint">— CLICK ANYWHERE TO START —</p>
+  <div>
+    <button id="newGameBtn">New Game</button>
+    <button id="continueBtn">Continue</button>
+  </div>
+  <p class="controls">
+    WASD / arrows — move &amp; drive &nbsp;•&nbsp; Mouse — camera (click the game to capture it)<br>
+    Shift — sprint &nbsp;•&nbsp; Space — handbrake &nbsp;•&nbsp; E — enter / exit car &nbsp;•&nbsp; F — talk / start mission / safehouse<br>
+    H — horn &nbsp;•&nbsp; Esc / P — pause &nbsp;•&nbsp; Left click — shove<br>
+    Steal cars, run missions, race Rico, and mind the stars: at five, Harbor PD sends the helicopter.<br>
+    Wreck a car and its engine dies for good. Earn $2,500 and the lot safehouse is yours — respawn at home, garage your car there.
+  </p>
+</div>
+
+<div id="pauseScreen" class="screen">
+  <h1>PAUSED</h1>
+  <h2>S O L M A R I N A &nbsp;H O L D S &nbsp;I T S &nbsp;B R E A T H</h2>
+  <div>
+    <button id="resumeBtn">Resume</button>
+    <button id="respawnBtn2">Back on the street</button>
+  </div>
+  <p><label for="brightSlider">DAYLIGHT</label><br>
+  <input id="brightSlider" type="range" min="30" max="130" value="100" step="1"><br>
+  <span class="controls">Slide from a grey dawn to the full Solmarina glare.</span></p>
+  <p class="controls">Esc / P — resume &nbsp;•&nbsp; Your cash and missions are saved as you play.</p>
+</div>
+
+<div id="endScreen" class="screen">
+  <h1 id="endTitle">BUSTED</h1>
+  <p id="endText"></p>
+  <div><button id="respawnBtn">Back on the street</button></div>
+</div>
+
+<p id="status" role="status" aria-live="polite"></p>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
