@@ -1,46 +1,33 @@
-# Vice Harbor — open-world crime game
+# KINGTIDE — open-world crime game
 
-A Three.js open-world crime game set in **Solmarina**, an original sun-soaked coastal city. Play as Dario Venn and rise from broke newcomer to the harbor's king wheelman in a **10-chapter story mode**.
-
-Built as an entry for the make.fun **gta6-01** competition. Dev judging: **98.7% win rate (12W–0L)** in the provisional heat.
+A Three.js open-world crime game set in **Solmarina**, an original sun-soaked coastal city split into three districts: **Oceanfront Downtown**, **Harbor Industrial**, and **Hillcrest Island**. Two full story campaigns, a living police force, and an arsenal you have to *earn* — weapons are never given, only **bought from a dealer or found hidden in the city**.
 
 ## Play
 
 Open `game/index.html` through any static server — or play it on GitHub Pages:
-**https://telorabad05.github.io/vice-harbor/game/**
+**https://telorabad05.github.io/kingtide/game/**
 
-## The story — 10 chapters
+## Two stories, one city
 
-1. **Sunset Sprint** — Lola at the marina gives the newcomer a first run
-2. **Hot Package** — fixer Uncle Sal tests Dario with a hot delivery
-3. **Island Drops** — smuggling drops around the bay, against the clock
-4. **Harbor Run GP** — street king Rico puts Dario's rep on the line
-5. **Grand Tour** — a five-leg proving run across the whole city
-6. **Harbor Heat** — a quay pickup goes wrong; get home with 3 stars and lose the heat
-7. **Dome Night** — steal a Velocity RS from the stadium lot, deliver it in one piece
-8. **Sirens' Harvest** — five cash bags, a strict clock, and one more star per bag
-9. **Rico's Revenge** — a pink-slip rematch, a faster Rico, and a police ambush mid-race
-10. **King of Solmarina** — the final job is a setup: a sting, 5 stars pinned, and one last run home
-
-## Controls
-
-- **WASD / arrows** — move & drive
-- **Mouse** — camera
-- **Shift** — sprint
-- **Space** — handbrake
-- **E** — enter / exit car
-- **F** — talk / start mission / interact
-- **Esc / P** — pause
-- **Left click** — shove
+- **Cerita Dario** (10 chapters) — Dario Venn rises from broke newcomer to king wheelman: marina errands, a street-racing rival, a harbor heist gone hot, and a betrayal finale under a pinned 5-star wanted level.
+- **KINGTIDE: DUO — Val & Rafa** (7 chapters) — Valeria "Val" Cruz walks out of prison after taking the fall for her old crew; Rafael "Rafa" Duarte is waiting at the gate. A crime-duo campaign of scores, ambushes and betrayal, with the lead switching between the two — including mid-mission.
 
 ## Features
 
-- Procedural coastal city: art-deco blocks, a park, the Solmarina Dome stadium, Lola's Quay marina with a lighthouse and cruising boats, beach and promenade
-- On foot or in cars — 8 car models, lane-graph traffic, parked cars to steal, crash damage and dead-engine wrecks
-- Wanted system 0–5 stars: intercept pursuit, roadblocks at 4+ stars, a police helicopter with a live spotlight at 5 stars, bust meter
-- Buyable safehouse with a garage — store your car, respawn at home, progress saved in localStorage
-- Living world: 48 pedestrians who stroll, chat and flee, animated seagulls, blinking rooftop beacons, a breathing lighthouse
-- Synthesized WebAudio: engine, doppler sirens, rotor wash, boat horns
+- **Combat**: 5 weapons (Pistol, Wasp SMG, Shotgun, Assault Rifle, RPG) with mags, reserve ammo, reloads and a GTA-style **weapon wheel (hold Q, slow motion)**. Buy them — plus ammo and armour — from **Marco**, the arms dealer in a Harbor Industrial back alley, or find 3 hidden pickups (pier, Dome, lighthouse).
+- **Police that hunt like GTA**: officers get out of their cars and chase you on foot, dynamic roadblocks deploy ahead of your escape route, a helicopter joins sustained chases — and can be shot down, or will leave when the heat dies. Break line of sight and the **SEARCH system** takes over: a search zone pulses on the minimap while units sweep it. Stay hidden and you walk free.
+- **A living city**: 3 distinct zones joined by bridges, a signature beach with umbrellas, lifeguard towers and strolling sunbathers, lane-graph traffic, 8 stealable car models, pedestrians who chat, stroll and flee.
+- **Driving**: nitro (Shift), synthesized radio with 3 stations, car damage with smoking wrecks, a buyable safehouse with a garage.
+- **REP system**: earn reputation for chapters, escapes and feats — climb from Newcomer to Harbor King.
+- Full save system in localStorage: story progress, garage, weapons, ammo, armour and REP all persist.
+
+## Controls
+
+- **WASD / arrows** — move & drive · **Mouse** — camera / aim
+- **Left click** — fire (when armed) / shove · **R** — reload (on foot) / radio (in a car)
+- **Hold Q** — weapon wheel · **1–5 / Tab / scroll** — switch weapon
+- **Shift** — sprint (on foot) / nitro (in a car) · **Space** — handbrake
+- **E** — enter / exit car · **F** — talk / start mission / Marco's shop · **Esc / P** — pause
 
 ## Run locally
 
@@ -48,13 +35,13 @@ Open `game/index.html` through any static server — or play it on GitHub Pages:
 npx tsx serve.ts   # or any static file server pointed at the repo root
 ```
 
-Then open the served `game/` page. The game is fully self-contained (Three.js is vendored under `game/vendor/three/`).
+Then open the served `game/` page. Fully self-contained (Three.js is vendored under `game/vendor/three/`), no network requests.
 
 ## Layout
 
 - `game/` — the playable game (static, no build step)
 - `screenshots/` — captures from the final build
-- `main.ts` — the competition entrypoint/handover
+- `main.ts` — entrypoint/handover from the original competition build (Vice Harbor, make.fun gta6-01)
 - `serve.ts` — tiny static server with ETag revalidation
 
 MIT licensed — see `LICENSE`.
