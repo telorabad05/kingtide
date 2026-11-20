@@ -27,6 +27,10 @@
     position: absolute; top: 80px; left: 20px; color: #bff3ff; font-size: 14px; letter-spacing: 2.5px;
     text-shadow: 0 1px 5px rgba(0,0,0,.8);
   }
+  #crewBar {
+    position: absolute; top: 106px; left: 20px; color: #bff3ff; font-size: 13.5px; letter-spacing: 1px;
+    text-shadow: 0 1px 5px rgba(0,0,0,.85); white-space: pre-line; line-height: 1.55;
+  }
   #weaponInfo {
     position: absolute; right: 22px; bottom: 118px; text-align: right; color: #ffe9a8; font-size: 21px; font-weight: bold;
     letter-spacing: 1px; text-shadow: 0 2px 6px rgba(0,0,0,.75); opacity: 0; transition: opacity .2s;
@@ -240,6 +244,14 @@
   .appBtn[data-app="pesan"] { background: linear-gradient(150deg, #39d353, #1d7a38); }
   .appBtn[data-app="kontak"] { background: linear-gradient(150deg, #b065d8, #6d3494); }
   .appBtn[data-app="statistik"] { background: linear-gradient(150deg, #ff9f43, #c96a12); }
+  .appBtn[data-app="jobs"] { background: linear-gradient(150deg, #e8b13c, #9c7414); }
+  .appBtn[data-app="garage"] { background: linear-gradient(150deg, #7a8a99, #46525e); }
+  .appBtn[data-app="bank"] { background: linear-gradient(150deg, #2fbf9a, #14755e); }
+  #phoneContent .phBtn {
+    pointer-events: auto; cursor: pointer; display: block; width: 100%; margin: 8px 0; padding: 9px;
+    border: none; border-radius: 10px; background: linear-gradient(180deg, #ffd97a, #ffb347);
+    color: #10222f; font-family: inherit; font-size: 14.5px; font-weight: bold;
+  }
   #pesanBadge {
     position: absolute; top: -7px; right: -7px; min-width: 24px; height: 24px; border-radius: 12px;
     background: #e84118; color: #fff; font-size: 14px; font-weight: bold; line-height: 24px; padding: 0 5px; display: none;
@@ -272,6 +284,7 @@
   <div id="cash">$250</div>
   <div id="rep">REP 0 · Newcomer</div>
   <div id="leadName">DARIO VENN</div>
+  <div id="crewBar"></div>
   <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
   <div id="searchWrap"><div class="lbl">👁 DICARI</div><div id="searchBar"><div id="searchFill"></div></div></div>
   <div id="banner"><span id="bannerTitle"></span><div id="bannerSub"></div></div>
@@ -303,6 +316,7 @@
     <b>E</b> — enter / exit car &nbsp;•&nbsp; <b>F</b> — talk / start mission / Marco's shop / bank door<br>
     <b>Left click</b> — swing the <b>Bat</b> · <b>fire</b> when a gun is equipped &nbsp;•&nbsp; <b>R</b> — reload · <b>radio</b> in a car<br>
     <b>1–6 / Tab / wheel</b> — switch weapon &nbsp;•&nbsp; <b>Hold Q</b> — weapon wheel &nbsp;•&nbsp; <b>T</b> — HP (phone) &nbsp;•&nbsp; <b>M</b> — Peta (map)<br>
+    <b>Z / X / C</b> — kemampuan kru: Mobil Jemputan · Suplai Marco · Mata-mata Sasa (setelah direkrut)<br>
     <b>Esc / P</b> — pause &nbsp;•&nbsp; You start with a baseball <b>Bat</b>. Guns are <b>found</b> or <b>bought</b> from Marco — never given
   </div>
 </div>
@@ -356,6 +370,9 @@
       <button class="appBtn" data-app="pesan">💬<span>Pesan</span><span id="pesanBadge"></span></button>
       <button class="appBtn" data-app="kontak">👥<span>Kontak</span></button>
       <button class="appBtn" data-app="statistik">📊<span>Statistik</span></button>
+      <button class="appBtn" data-app="jobs">🧰<span>Jobs</span></button>
+      <button class="appBtn" data-app="garage">🚗<span>Garasi</span></button>
+      <button class="appBtn" data-app="bank">🏦<span>Bank</span></button>
     </div>
     <div id="phoneScreen">
       <div id="phoneHead"><button id="phoneBack">‹</button><div id="phoneAppTitle"></div><button id="phoneClose">✕</button></div>
