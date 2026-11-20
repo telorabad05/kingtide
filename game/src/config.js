@@ -49,7 +49,8 @@ export const TUNING = {
   pedCount: 48,
   startCash: 250,
   housePrice: 2500,
-  bustedFineBase: 100,       // + 50 per wanted star
+  bustedFineBase: 100,       // (legacy — round 3 replaced the fine with bail)
+  bailPerStar: 200,          // round 3: bail = $200 × current stars, posted by your partner
   wastedFee: 100,
   rivalSpeedFactor: 0.82,    // Rico's car runs at this fraction of its top speed
   pedChatChance: 0.35,       // chance a meeting pair stops to talk

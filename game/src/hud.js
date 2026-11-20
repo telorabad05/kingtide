@@ -11,6 +11,8 @@ export class HUD {
     this.cashEl = $('cash');
     this.repEl = $('rep');
     this.leadEl = $('leadName');
+    this.crewEl = $('crewBar');
+    this._crewKey = '';
     this.starsEl = $('stars');
     this.bannerEl = $('banner');
     this.bannerTitle = $('bannerTitle');
@@ -137,6 +139,11 @@ export class HUD {
       g.fillText('OBJEKTIF', px, py - pulse - 9);
       out.target = { px, py };
     }
+    if (view.zones) {
+      g.font = 'bold 13px sans-serif'; g.fillStyle = '#ffd97a';
+      for (const z of view.zones) g.fillText(z.text, X(z.x), Z(z.z));
+    }
+    out.standing = view.standing || null;
     // player arrow — same rotation convention as the minimap
     const px = X(view.player.x), py = Z(view.player.z);
     g.save();
@@ -257,6 +264,12 @@ export class HUD {
     if (!name) { this.leadEl.style.display = 'none'; return; }
     this.leadEl.style.display = '';
     this.leadEl.textContent = name;
+  }
+  setCrew(lines) {
+    const key = lines.join('|');
+    if (key === this._crewKey) return;
+    this._crewKey = key;
+    this.crewEl.textContent = lines.join('\n');
   }
   setArmour(v01) {
     if (v01 === null || v01 <= 0.001) { this.armourWrap.classList.remove('show'); return; }

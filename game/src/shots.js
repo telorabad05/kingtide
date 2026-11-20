@@ -82,6 +82,56 @@ export function stageShot(name, api) {
     api.setCamera(-243, 4.5, 175, -224, 1.2, 161);
     return true;
   }
+  if (name === 'crew') {
+    // Round 3 bonus shot: the crew, assembled for real — the partner joins
+    // via the chapter list, Marco is talked into the crew at his alley,
+    // Sasa at her beach post, and the phone Kontak page lists all three.
+    api.setDaylight(0.42);
+    window.__game.plus.setDone(['sprint', 'package', 'drops', 'grandprix', 'tour', 'heat', 'dome', 'cashrun', 'revenge', 'king', 'freshair']);
+    api.setLead('val');
+    api.teleport(358, 99, 0);   // inside Marco's 4.6 m talk radius (he stands at z=96)
+    setTimeout(() => {
+      const g = window.__game;
+      for (let i = 0; i < 4; i++) g.interact();   // Marco's recruitment talk
+      g.plus.closeShop();   // the 4th tap falls through to his shop — close it or the phone won't open
+      g.teleport(94, 209, 0);
+      setTimeout(() => {
+        for (let i = 0; i < 4; i++) g.interact();   // Sasa's recruitment talk
+        setTimeout(() => {   // let a few play frames render the full crew bar first (capture-res frames take ~1 s under SwiftShader)
+          g.plus.openPhone();
+          g.plus.openPhoneApp('kontak');
+          g.setCamera(84, 2.8, 198, 99, 1.2, 216);
+        }, 4000);
+      }, 900);
+    }, 900);
+    return true;
+  }
+  if (name === 'garage') {
+    // Round 3 bonus shot: Palm Row for real — buy the safehouse, drive a
+    // Palm Coupe into the garage so it stores, then open the phone Garage
+    // app on the stored car.
+    api.setDaylight(0.5);
+    api.teleport(64, 96, 0);
+    setTimeout(() => {
+      const g = window.__game;
+      g.setCash(5000);
+      g.interact();   // buy the safehouse ($2,500)
+      g.plus.spawnCarAt('coupe', 88, 124);
+      const v = g.vehicles().find((v2) => Math.abs(v2.x - 88) < 0.5 && Math.abs(v2.z - 124) < 0.5);
+      if (v) g.enterCar(v);
+      setTimeout(() => {
+        const c = g.vehicles().find((v2) => v2.driver === 'player');
+        if (c) c.place(88, 116, c.heading, NO_PIER);
+        g.toggleCar();   // stepping out inside the garage stores the car
+        setTimeout(() => {   // a few play frames so the drive HUD clears first (capture-res frames take ~1 s under SwiftShader)
+          g.plus.openPhone();
+          g.plus.openPhoneApp('garage');
+          g.setCamera(68, 3.6, 132, 92, 1.0, 108);
+        }, 4000);
+      }, 900);
+    }, 900);
+    return true;
+  }
   if (name === 'heist') {
     // Inside the Harbor Bank during the hostage step: chapters 1–16 marked
     // done (staging), the prologue talk skipped, the player walked in —

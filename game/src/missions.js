@@ -666,7 +666,7 @@ export class MissionRunner {
     this.active = null;
     if (noRep && g.markMissionDoneNoRep) g.markMissionDoneNoRep(def.id);
     else g.markMissionDone(def.id);
-    g.addCash(def.reward);
+    g.addCash(def.reward, 'Hadiah bab: ' + def.name);
     if (def.finalBanner) {
       g.banner(def.finalBanner.title, `${def.finalBanner.sub} (+$${def.reward.toLocaleString()})`);
     } else {

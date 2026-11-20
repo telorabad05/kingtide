@@ -17,6 +17,7 @@ import { WeaponSystem, WEAPON_DEFS, WEAPON_ORDER, BAT_DEF, defById as weaponDef 
 import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
 import { stageShot } from './shots.js';
+import { Round3System, defaultR3, standingBand, SASA_SPOT, SHELL_SPOTS, STUNT_RAMPS } from './round3.js';
 
 const params = new URLSearchParams(location.search);
 const shotName = params.get('shot');
@@ -90,6 +91,7 @@ function freshSave() {
   return {
     cash: TUNING.startCash, done: [], house: false, stored: null,
     armour: 0, rep: 0, weapons: null, flags: {}, messages: [],
+    garage: [], r3: defaultR3(),
   };
 }
 let S = freshSave();
@@ -119,6 +121,14 @@ let fenceCar = null;
 // ONE wallet, ONE progress list (round 2 merged the two campaigns)
 const curCash = () => S.cash;
 function setCurCash(n) { S.cash = n; hud.setCash(n); }
+/** Round 3: EVERY cash change flows through here so the phone Bank app can
+ *  log it. A null label (or a zero amount) moves money without logging. */
+function money(n, label) {
+  if (!n) return;
+  setCurCash(curCash() + n);
+  if (label) r3.logBank(n, label);
+  save();
+}
 const curDone = () => S.done;
 function spawnPoint() {
   return S.house ? { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ } : { x: CITY.spawn.x, z: CITY.spawn.z };
@@ -286,6 +296,27 @@ function normalizeSave(data) {
     for (const id of data.duoDone) if (!out.done.includes(id)) out.done.push(id);
     if (typeof data.duoCash === 'number') out.cash = data.duoCash;
   }
+  // Round 3: crew / standing / collectibles / garage / bank log — old saves
+  // get defaults; a pre-round-3 stored car becomes the first garage entry.
+  const r3d = defaultR3();
+  const r3in = (data.r3 && typeof data.r3 === 'object') ? data.r3 : {};
+  out.r3 = {
+    ...r3d, ...r3in,
+    crew: { ...r3d.crew, ...(r3in.crew || {}) },
+    standing: { ...r3d.standing, ...(r3in.standing || {}) },
+    shells: Array.isArray(r3in.shells) ? r3in.shells.filter((i) => Number.isInteger(i) && i >= 0 && i < SHELL_SPOTS.length) : [],
+    stunts: Array.isArray(r3in.stunts) ? r3in.stunts.filter((i) => Number.isInteger(i) && i >= 0 && i < STUNT_RAMPS.length) : [],
+    exportDone: Array.isArray(r3in.exportDone) ? [...r3in.exportDone] : [],
+    bankLog: Array.isArray(r3in.bankLog) ? r3in.bankLog.slice(-10) : [],
+    jobOffer: r3in.jobOffer || null,
+    jobActive: r3in.jobActive || null,
+    jobOfferIdx: r3in.jobOfferIdx | 0,
+    clockOff: r3in.clockOff || 0,
+    exportBonus: !!r3in.exportBonus,
+  };
+  out.garage = Array.isArray(data.garage) ? data.garage.filter((g) => g && g.modelId).slice(0, 4) : [];
+  if (!out.garage.length && out.stored) out.garage = [{ modelId: out.stored.modelId, paint: out.stored.paint }];
+  if (out.done.includes('freshair')) out.r3.crew.partner = true;
   return out;
 }
 function applyHouseVisual() {
@@ -316,7 +347,7 @@ function respawnPoint() {
 const G = {
   playerState: () => ({ x: player.x, z: player.z, inCar: !!player.car, speed: Math.abs(player.speed) }),
   cash: () => curCash(),
-  addCash(n) { setCurCash(curCash() + n); audio.cash(); save(); },
+  addCash(n, label) { money(n, label || 'Hadiah bab'); audio.cash(); },
   banner: (t, s) => { hud.banner(t, s); document.getElementById('status').textContent = t + (s ? ' — ' + s : ''); },
   objective: (t) => { currentObjective = t; hud.objective(t); },
   setWantedMin(n) { if (wanted < n) { wanted = n; lastSeenX = player.x; lastSeenZ = player.z; } },
@@ -339,7 +370,7 @@ const G = {
   },
   stageHook: (hook, runner) => stageHook(hook, runner),
   // round 2: phone story beats + the fence switch + bank plumbing
-  onChapterStart: (def) => pushChapterMessage(def),
+  onChapterStart: (def) => { pushChapterMessage(def); if (def.id === 'freshair') recruitPartner(false); },
   onBeat: (beat) => {
     const partner = currentLead === 'rafa' ? 'Val' : 'Rafa';
     if (beat === 'drill') pushMessage(partner, 'Bor sudah makan pintu brankas. Tahan lobinya — jangan biarkan mereka panik.');
@@ -356,11 +387,16 @@ const G = {
   removeDynCollider: (c) => { const i = dynamicColliders.indexOf(c); if (i >= 0) dynamicColliders.splice(i, 1); },
   fxSpark: (x, y, z) => weapons.sparks(x, y, z, 0xffc46b, 3, 0.4),
 };
+function chapterSettled(id) {
+  const def = missions.defById(id);
+  if (def) r3.onChapterDone(zoneAt(def.start.x, def.start.z));
+  if (id === 'freshair') recruitPartner(true);
+}
 function markDone(id) {
-  if (!S.done.includes(id)) { S.done.push(id); addRep(TUNING.repPerChapter, true); save(); }
+  if (!S.done.includes(id)) { S.done.push(id); addRep(TUNING.repPerChapter, true); chapterSettled(id); save(); }
 }
 function markDoneNoRep(id) {
-  if (!S.done.includes(id)) { S.done.push(id); save(); }
+  if (!S.done.includes(id)) { S.done.push(id); chapterSettled(id); save(); }
 }
 const missions = new MissionRunner(scene, {
   ...G,
@@ -370,6 +406,205 @@ const missions = new MissionRunner(scene, {
 });
 function activeMissions() { return missions; }
 function refreshAllMarkers() { missions.refreshMarkers(); }
+
+// ---------------------------------------------------------------- round 3 systems
+const r3 = new Round3System(scene, {
+  state: () => S.r3,
+  player: () => ({ x: player.x, z: player.z, inCar: !!player.car, car: player.car, speed: player.speed }),
+  zoneAt: (x, z) => zoneAt(x, z),
+  money: (n, label) => money(n, label),
+  addRep: (n, silent) => addRep(n, silent),
+  banner: (t, s) => G.banner(t, s),
+  toast: (t) => hud.toast(t),
+  save: () => save(),
+  elapsed: () => elapsed,
+  startHop: (idx, speed) => startHop(idx, speed),
+  hopActive: () => !!carHop,
+  exportDeliver: (car) => exportDeliver(car),
+});
+
+// ---------------------------------------------------------------- round 3: crew
+const CREW = {
+  partner: { key: 'Z', ability: 'Mobil Jemputan', cost: 150, cd: 60 },
+  marco: { key: 'X', ability: 'Suplai', cost: 200, cd: 90 },
+  sasa: { key: 'C', ability: 'Mata-mata', cost: 250, cd: 120 },
+};
+const crewCd = { partner: 0, marco: 0, sasa: 0 };   // elapsed time when each ability is ready again
+function crewPartnerName() { return currentLead === 'rafa' ? 'Val' : 'Rafa'; }
+function bailSender() { return currentLead === 'dario' ? 'Lola' : crewPartnerName(); }
+function recruitPartner(announce = false) {
+  if (S.r3.crew.partner) return;
+  S.r3.crew.partner = true;
+  if (announce) {
+    hud.toast(`🤝 ${crewPartnerName()} jadi kru — tekan Z untuk Mobil Jemputan ($150)`);
+    pushMessage(crewPartnerName(), 'Mulai sekarang kita kru beneran. Butuh mobil cepat? Tekan Z — kuantar ke jalan terdekat.');
+  }
+  save();
+}
+function syncCrewFromDone() { if (S.done.includes('freshair')) S.r3.crew.partner = true; }
+function repairCar(car) {
+  car.health = 100; car.dead = false;
+  if (car.smoke) { car.mesh.remove(car.smoke); car.smoke = null; }
+  if (car.flame) { car.mesh.remove(car.flame); car.flame = null; }
+}
+function nearestRoadPoint(x, z) {
+  let best = null, bestD = Infinity;
+  const consider = (px, pz) => {
+    const d = dist2d(x, z, px, pz);
+    if (d < bestD) { bestD = d; best = { x: px, z: pz, heading: Math.atan2(x - px, z - pz) }; }
+  };
+  for (const n of graph.nodes) consider(n.x, n.z);
+  for (const s of city.parkedSpots) consider(s.x, s.z);
+  for (const p of [[-310, 340], [-450, 340], [-380, 270], [-380, 410], [462, 152], [330, 152]]) consider(p[0], p[1]);
+  return best;
+}
+/** Shared by the partner crew ability and the phone Garage "Antar". */
+function spawnDeliveryCar(x, z, modelId = null, paint = null) {
+  const pt = nearestRoadPoint(x, z);
+  const model = modelId ? modelById(modelId) : pick(rng, ['sedan', 'coupe', 'coral', 'wagon', 'buggy'].map(modelById));
+  const v = new Vehicle(scene, model, paint ?? pick(rng, PALETTE.carPaints), {});
+  v.driver = 'parked';
+  v.place(pt.x, pt.z, pt.heading, CITY.pier);
+  extraVehicles.add(v);
+  return v;
+}
+function useCrewAbility(who) {
+  if (mode !== 'play') return false;
+  const def = CREW[who];
+  const name = who === 'partner' ? crewPartnerName() : who === 'marco' ? 'Marco' : 'Sasa';
+  if (!S.r3.crew[who]) {
+    hud.toast(`🚫 ${name} belum jadi kru — ${who === 'partner' ? 'selesaikan Bab 11 dulu' : who === 'marco' ? 'bicara dengan Marco setelah Bab 3' : 'temui Sasa di pantai setelah Bab 6'}`);
+    return false;
+  }
+  const left = crewCd[who] - elapsed;
+  if (left > 0) { hud.toast(`⏳ ${def.ability} — tunggu ${Math.ceil(left)} dtk`); return false; }
+  if (who === 'sasa' && wanted <= 0 && wantedState !== 'search') { hud.toast('👁️ Tidak ada yang mengejarmu — Mata-mata disimpan dulu.'); return false; }
+  if (curCash() < def.cost) { hud.toast(`💸 Uang tidak cukup untuk ${def.ability} ($${def.cost})`); return false; }
+  money(-def.cost, `Kru: ${def.ability}`);
+  crewCd[who] = elapsed + def.cd;
+  if (who === 'partner') {
+    const v = spawnDeliveryCar(player.x, player.z);
+    hud.banner('🚗 Mobil Jemputan', `${name} mengantar ${v.model.name} ke jalan terdekat.`);
+  } else if (who === 'marco') {
+    for (const id of WEAPON_ORDER) if (weapons.state[id].owned) weapons.addAmmo(id);
+    let txt = 'Ammo semua senjata ditambah.';
+    if (player.car) { repairCar(player.car); txt += ' Mobilmu diperbaiki.'; }
+    hud.banner('🔧 Suplai Marco', txt);
+  } else if (wantedState === 'search' && search) {
+    search.timer *= 0.5;
+    hud.banner('👁️ Mata-mata', 'Sasa mengalihkan patroli — waktu pencarian terpotong setengah.');
+  } else {
+    wanted = Math.max(0, wanted - 1);
+    hud.banner('👁️ Mata-mata', 'Satu bintang hilang dari radar Harbor PD.');
+  }
+  audio.blip(740);
+  save();
+  return true;
+}
+function crewHudLines() {
+  const out = [];
+  for (const who of ['partner', 'marco', 'sasa']) {
+    if (!S.r3.crew[who]) continue;
+    const def = CREW[who];
+    const left = Math.max(0, Math.ceil(crewCd[who] - elapsed));
+    out.push(`${def.key} · ${def.ability}: ${left > 0 ? left + 's' : 'SIAP'}`);
+  }
+  return out;
+}
+function crewKontakLines() {
+  const st = (who) => !S.r3.crew[who] ? 'belum direkrut'
+    : (crewCd[who] - elapsed > 0 ? `kru · cooldown ${Math.ceil(crewCd[who] - elapsed)} dtk` : 'kru · kemampuan SIAP');
+  return [
+    `🚗 Partner (${crewPartnerName()}) — Mobil Jemputan $150 [Z] · ${st('partner')}`,
+    `🔧 Marco — Suplai $200 [X] · ${st('marco')}`,
+    `👁️ Sasa — Mata-mata $250 [C] · ${st('sasa')}`,
+  ];
+}
+
+// ---------------------------------------------------------------- round 3: garage + export plumbing
+function garageEntryIndex(car) {
+  return S.garage.findIndex((g) => g.modelId === car.model.id && g.paint === car.paint);
+}
+function garageDeliver(i) {
+  const entry = S.garage[i];
+  if (!entry) return false;
+  if (curCash() < 150) { hud.toast('💸 Antar mobil garasi butuh $150.'); return false; }
+  money(-150, 'Antar mobil garasi');
+  if (S.stored && S.stored.modelId === entry.modelId && S.stored.paint === entry.paint && storedCar) {
+    extraVehicles.delete(storedCar);
+    storedCar.dispose(scene);
+    storedCar = null;
+    S.stored = null;
+  }
+  S.garage.splice(i, 1);
+  const v = spawnDeliveryCar(player.x, player.z, entry.modelId, entry.paint);
+  hud.banner('🚗 Mobil diantar', `${v.model.name} menunggumu di jalan terdekat.`);
+  save();
+  return true;
+}
+function garageLines() {
+  if (!S.garage.length) return ['Garasi kosong — parkir mobil di garasi safehouse (Palm Row) untuk menyimpannya.'];
+  return S.garage.map((g, i) => {
+    const isWorld = S.stored && S.stored.modelId === g.modelId && S.stored.paint === g.paint;
+    return `${i + 1}. ${modelById(g.modelId).name}${isWorld ? ' — terparkir di garasi rumah' : ' — tersimpan'}`;
+  });
+}
+function exportDeliver(car) {
+  if (player.car === car) exitCarInternal();
+  const ti = traffic.vehicles.indexOf(car); if (ti >= 0) traffic.vehicles.splice(ti, 1);
+  const pi = parkedCars.indexOf(car); if (pi >= 0) parkedCars.splice(pi, 1);
+  extraVehicles.delete(car);
+  if (storedCar === car) { storedCar = null; S.stored = null; }
+  if (fenceCar === car) fenceCar = null;
+  car.dispose(scene);
+}
+
+// ---------------------------------------------------------------- round 3: stunt hop
+let carHop = null;   // { ramp, vy, y } while the player's car is airborne off a ramp
+function startHop(rampIdx, speed) {
+  if (carHop) return;
+  carHop = { ramp: rampIdx, vy: 5.5 + speed * 0.14, y: 0 };
+  audio.blip(500);
+}
+
+// ---------------------------------------------------------------- round 3: crew recruitment talks
+const MARCO_TALK = [
+  { who: 'Marco', text: 'Kamu yang bikin pelabuhan ribut belakangan ini. Aku dengar dari dermaga sampai Dome.' },
+  { who: 'Marco', text: 'Dengar — senjataku sudah membantumu. Biar aku bantu lebih: ammo segar dan bengkel kilat, kapan pun kamu panggil.' },
+  { who: 'Marco', text: 'Anggap aku kru-mu mulai sekarang. Tekan X kalau butuh suplai. Jangan mati konyol.' },
+];
+const SASA_TALK = [
+  { who: 'Sasa', text: 'Pantai ini mataku. Setiap patroli yang lewat, setiap kamera yang menyala — aku tahu duluan.' },
+  { who: 'Sasa', text: 'Kamu sering dikejar, kan? Sekali panggil, kubuat mereka kehilangan jejakmu. Satu bintang, lenyap.' },
+  { who: 'Sasa', text: 'Tekan C kalau sirene mulai dekat. Aku jaga pantai ini — dan sekarang, kamu juga.' },
+];
+let npcTalk = null;   // { who: 'marco' | 'sasa', idx }
+const nearSasa = () => !player.car && dist2d(player.x, player.z, SASA_SPOT.x, SASA_SPOT.z) < 4.6;
+function startNpcTalk(who) {
+  npcTalk = { who, idx: 0 };
+  const L = who === 'marco' ? MARCO_TALK : SASA_TALK;
+  hud.banner(L[0].who, L[0].text);
+}
+function advanceNpcTalk() {
+  const L = npcTalk.who === 'marco' ? MARCO_TALK : SASA_TALK;
+  npcTalk.idx++;
+  if (npcTalk.idx >= L.length) {
+    const who = npcTalk.who;
+    npcTalk = null;
+    S.r3.crew[who] = true;
+    if (who === 'marco') {
+      hud.banner('🔧 Marco bergabung!', 'Tekan X untuk Suplai: ammo + perbaikan mobil, $200.');
+      pushMessage('Marco', 'Mulai sekarang aku kru-mu. Butuh ammo atau bengkel kilat? Tekan X.');
+    } else {
+      hud.banner('👁️ Sasa bergabung!', 'Tekan C untuk Mata-mata: hilangkan 1 bintang, $250.');
+      pushMessage('Sasa', 'Mataku terbuka untukmu sekarang. Tekan C kalau sirene mulai dekat.');
+    }
+    audio.blip(880);
+    save();
+    return;
+  }
+  hud.banner(L[npcTalk.idx].who, L[npcTalk.idx].text);
+}
 
 /** Story beats that live outside the stage machinery (DUO hooks). */
 function stageHook(hook, runner) {
@@ -394,13 +629,17 @@ function stageHook(hook, runner) {
 
 // ---------------------------------------------------------------- crimes + consequences
 function commitCrime(stars) {
+  const before = wanted;
   wanted = clamp(wanted + stars, 0, 5);
   unseenT = 0;
   lastSeenX = player.x; lastSeenZ = player.z;   // the crime scene is the last known position
+  const gained = wanted - before;
+  if (gained > 0.01) r3.onCrime(zoneAt(player.x, player.z), gained);   // round 3: district standing
 }
 function exitCarInternal() {
   const car = player.car;
   if (!car) return;
+  carHop = null;
   player.car = null;
   car.driver = 'parked';
   const rx = -Math.cos(car.heading), rz = Math.sin(car.heading);   // car's right side
@@ -408,14 +647,21 @@ function exitCarInternal() {
   [nx, nz] = collideCircle(currentWorld().colliders, nx, nz, 0.55);
   placePlayer(nx, nz, car.heading);
   playerMesh.visible = true;
-  // stepping out inside your own garage stores the car
+  // stepping out inside your own garage stores the car (round 3: up to 4 in
+  // the garage list; S.stored mirrors the one car physically parked there)
   const SH = CITY.safehouse;
   if (S.house && dist2d(car.x, car.z, SH.garageX, SH.garageZ) < SH.garageR) {
-    S.stored = { modelId: car.model.id, paint: car.paint };
-    storedCar = car; extraVehicles.add(car);
-    G.banner('Stored in your garage', `The ${car.model.name} will be here when you need it.`);
-    audio.blip(660);
-    save();
+    if (garageEntryIndex(car) < 0 && S.garage.length >= 4) {
+      hud.toast('🅿️ Garasi penuh (maks 4) — mobil dibiarkan terparkir biasa.');
+    } else {
+      if (storedCar && storedCar !== car) { extraVehicles.delete(storedCar); storedCar.dispose(scene); }
+      if (garageEntryIndex(car) < 0) S.garage.push({ modelId: car.model.id, paint: car.paint });
+      S.stored = { modelId: car.model.id, paint: car.paint };
+      storedCar = car; extraVehicles.add(car);
+      G.banner('Stored in your garage', `The ${car.model.name} will be here when you need it. (${S.garage.length}/4)`);
+      audio.blip(660);
+      save();
+    }
   }
 }
 function enterCar(car) {
@@ -425,28 +671,40 @@ function enterCar(car) {
     peds.threaten(car.x, car.z, 0, 0, 10);
     G.banner('Stolen!', 'Harbor PD has been notified.');
   }
-  if (car === storedCar) { storedCar = null; extraVehicles.delete(car); S.stored = null; save(); }
+  if (car === storedCar) {
+    const gi = garageEntryIndex(car);
+    if (gi >= 0) S.garage.splice(gi, 1);
+    storedCar = null; extraVehicles.delete(car); S.stored = null; save();
+  }
   if (car === fenceCar) fenceCar = null;
   player.car = car;
   car.driver = 'player';
   playerMesh.visible = false;
   audio.blip(520);
+  r3.onEnterCar(car);   // round 3: harbor export list flagging
 }
 function busted() {
-  const fine = Math.min(curCash(), TUNING.bustedFineBase + 50 * Math.floor(wanted));
-  setCurCash(curCash() - fine);
-  if (player.car) exitCarInternal();
+  // Round 3: your partner posts bail — $200 × current stars (wallet floors
+  // at 0), weapons are kept, the city clock jumps +3 h, and a mid-chapter
+  // bust restarts the chapter through the normal fail/retry flow.
+  const stars = Math.max(1, Math.ceil(wanted - 1e-6));
+  const fine = Math.min(curCash(), TUNING.bailPerStar * stars);
+  money(-fine, 'Jaminan (bail)');
   wanted = 0; bust = 0; episodePeak = 0; search = null; wantedState = 'clear';
+  if (missions.active) missions.fail('Ditangkap di tengah bab — bab diulang dari awal.');
+  if (player.car) exitCarInternal();
+  S.r3.clockOff += 180;
   const rp = respawnPoint();
   placePlayer(rp.x, rp.z, 0);
   hud.bigText('BUSTED', '#ff5e5e');
   audio.sting('busted');
-  G.banner(`Busted! Fine $${fine}`, 'Harbor PD thanks you for your donation.');
+  G.banner(`Busted! ${bailSender()} menebusmu — $${fine.toLocaleString()}`, 'Jaminan dibayar partner-mu. Jam kota melompat 3 jam.');
+  pushMessage(bailSender(), `Sudah kutebus — $${fine.toLocaleString()} melayang. Lain kali jangan ketangkap, ya.`);
   save();
 }
 function wasted() {
   const fee = Math.min(curCash(), TUNING.wastedFee);
-  setCurCash(curCash() - fee);
+  money(-fee, 'Rumah sakit');
   if (player.car) exitCarInternal();
   player.health = 100;
   wanted *= 0.5; bust = 0; episodePeak = 0;
@@ -481,6 +739,9 @@ function startGame(fresh) {
     phone.unread = 0;
   }
   weapons.restore(S.weapons);
+  r3.restoreVisuals();
+  syncCrewFromDone();
+  npcTalk = null; carHop = null;
   wanted = 0; pinnedWanted = null; bust = 0; episodePeak = 0; search = null; wantedState = 'clear'; pendingReport = null;
   player.health = 100; nitroMeter = 100; radioStation = 0;
   applyHouseVisual();
@@ -527,14 +788,17 @@ function renderShop() {
     b.addEventListener('click', fn);
     return b;
   };
+  const sB = S.r3.standing.industrial;
+  const fB = r3.marcoFactor();
+  row(`<div><div class="nm">Reputasi Harbor Industrial: ${sB > 0 ? '+' : ''}${sB} (${standingBand(sB)})</div><div class="ds">${fB < 1 ? 'Marco memberimu diskon 15% — distrik ini menyukaimu.' : fB > 1 ? 'Marco menaikkan harga 15% — distrik ini membencimu.' : 'Harga normal. Reputasi distrik memengaruhi harga Marco.'}</div></div>`, []);
   for (const def of WEAPON_DEFS) {
     const st = weapons.state[def.id];
     const desc = st.owned
       ? `Dimiliki · mag ${st.mag} / cadangan ${st.reserve}`
       : `${def.cls} · damage ${def.dmg}${def.pellets > 1 ? '×' + def.pellets : ''} · mag ${def.mag}`;
     const buttons = [];
-    if (!st.owned) buttons.push(btn(`Beli · $${def.price.toLocaleString()}`, '', () => buyWeapon(def.id)));
-    else buttons.push(btn(`Ammo +${def.ammoPack} · $${def.ammoPrice}`, 'ammo', () => buyAmmo(def.id)));
+    if (!st.owned) buttons.push(btn(`Beli · $${r3.marcoPrice(def.price).toLocaleString()}`, '', () => buyWeapon(def.id)));
+    else buttons.push(btn(`Ammo +${def.ammoPack} · $${r3.marcoPrice(def.ammoPrice)}`, 'ammo', () => buyAmmo(def.id)));
     row(`<div><div class="nm">${def.name}</div><div class="ds">${desc}</div></div>`, buttons);
   }
   row(`<div><div class="nm">Armour</div><div class="ds">Rompi anti-peluru · sekarang ${Math.round(S.armour)}/100 — menyerap 60% damage tabrakan &amp; ledakan</div></div>`,
@@ -542,8 +806,9 @@ function renderShop() {
 }
 function buyWeapon(id) {
   const def = weaponDef(id);
-  if (curCash() < def.price) { shopMsg(`Uang tidak cukup — kurang $${(def.price - curCash()).toLocaleString()}.`); audio.blip(220); return; }
-  setCurCash(curCash() - def.price);
+  const price = r3.marcoPrice(def.price);
+  if (curCash() < price) { shopMsg(`Uang tidak cukup — kurang $${(price - curCash()).toLocaleString()}.`); audio.blip(220); return; }
+  money(-price, `Beli ${def.name}`);
   const first = weapons.grant(id, true);
   weapons.equip(id);
   if (first && !S.flags.firstWeapon) { S.flags.firstWeapon = true; addRep(TUNING.repFirstWeapon, true); pushMessage('Marco', 'Senjata bagus untuk tangan yang benar. Ammo selalu ada di tempatku.'); }
@@ -553,8 +818,9 @@ function buyWeapon(id) {
 }
 function buyAmmo(id) {
   const def = weaponDef(id);
-  if (curCash() < def.ammoPrice) { shopMsg('Uang tidak cukup untuk ammo.'); audio.blip(220); return; }
-  setCurCash(curCash() - def.ammoPrice);
+  const price = r3.marcoPrice(def.ammoPrice);
+  if (curCash() < price) { shopMsg('Uang tidak cukup untuk ammo.'); audio.blip(220); return; }
+  money(-price, `Ammo ${def.name}`);
   weapons.addAmmo(id);
   shopMsg(`+${def.ammoPack} peluru ${def.name}.`);
   audio.blip(740);
@@ -562,7 +828,7 @@ function buyAmmo(id) {
 }
 function buyArmour() {
   if (curCash() < 400) { shopMsg('Uang tidak cukup untuk armour.'); audio.blip(220); return; }
-  setCurCash(curCash() - 400);
+  money(-400, 'Beli armour');
   S.armour = 100;
   shopMsg('Armour penuh. Tabrakan dan ledakan terasa lebih ringan.');
   audio.cash();
@@ -595,7 +861,7 @@ const phoneContentEl = document.getElementById('phoneContent');
 const phoneTitleEl = document.getElementById('phoneAppTitle');
 const phoneClockEl = document.getElementById('phoneClock');
 function phoneClockText() {
-  const mins = 480 + Math.floor(elapsed * 0.1);   // 08:00 + 1 min per 10 s played
+  const mins = 480 + Math.floor(elapsed * 0.1) + (S.r3 ? S.r3.clockOff : 0);   // 08:00 + 1 min per 10 s played (+ bail jumps)
   return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 function updatePhoneBadge() {
@@ -649,6 +915,7 @@ function misiData() {
     title = 'Semua 17 bab selesai 👑';
     lines.push('· Solmarina milikmu. Jelajahi kota sesukamu.');
   }
+  if (S.r3.jobActive) for (const ln of r3.jobsLines()) lines.push(ln);
   return { title, lines };
 }
 function kontakData() {
@@ -660,7 +927,7 @@ function kontakData() {
     ['Uncle Sal', S.done.includes('king') ? 'Kekaisarannya runtuh — menghilang' : 'Fixer pelabuhan — pemberi kerja'],
     ['Rico Delgado', S.done.includes('revenge') ? 'Sudah kalah dua kali' : 'Raja jalanan — rival balap'],
     ['Marco', 'Gang Harbor Industrial — senjata & armour'],
-  ].map(([n, s]) => `${n} — ${s}`);
+  ].map(([n, s]) => `${n} — ${s}`).concat(crewKontakLines());
 }
 function statistikData() {
   const owned = WEAPON_ORDER.filter((id) => weapons.state[id].owned).length;
@@ -671,6 +938,7 @@ function statistikData() {
     `🔫 Senjata dimiliki: ${owned + 1}/6 (termasuk Bat)`,
     `🛡️ Armour: ${Math.round(S.armour)}/100`,
     `🏠 Safehouse Palm Row: ${S.house ? 'dimiliki' : 'belum dibeli ($2,500)'}`,
+    ...r3.statistikLines(),
   ];
 }
 function openPhone() {
@@ -702,10 +970,17 @@ function phoneLine(text, cls = 'phLine') {
   d.textContent = text;
   phoneContentEl.appendChild(d);
 }
+function phoneButton(label, fn) {
+  const b = document.createElement('button');
+  b.className = 'phBtn';
+  b.textContent = label;
+  b.addEventListener('click', () => { fn(); if (phone.app) showPhoneApp(phone.app); });
+  phoneContentEl.appendChild(b);
+}
 function showPhoneApp(app) {
   phone.app = app;
   phoneAppsEl.style.display = 'none';
-  phoneScreenEl.style.display = '';
+  phoneScreenEl.style.display = 'flex';   // '' would fall back to the stylesheet's display:none — the app screen stayed invisible (found by the round-3 screenshot pass)
   phoneClockEl.textContent = phoneClockText();
   phoneContentEl.innerHTML = '';
   if (app === 'misi') {
@@ -730,6 +1005,21 @@ function showPhoneApp(app) {
   } else if (app === 'statistik') {
     phoneTitleEl.textContent = '📊 Statistik';
     for (const ln of statistikData()) phoneLine(ln);
+  } else if (app === 'jobs') {
+    phoneTitleEl.textContent = '🧰 Jobs';
+    for (const ln of r3.jobsLines()) phoneLine(ln);
+    if (S.r3.jobOffer && !S.r3.jobActive) phoneButton('✔ Ambil Job', () => r3.acceptJob());
+    for (const ln of r3.exportLines()) phoneLine(ln);
+  } else if (app === 'garage') {
+    phoneTitleEl.textContent = '🚗 Garasi';
+    for (const ln of garageLines()) phoneLine(ln);
+    S.garage.forEach((g, i) => phoneButton(`Antar ${modelById(g.modelId).name} · $150`, () => garageDeliver(i)));
+  } else if (app === 'bank') {
+    phoneTitleEl.textContent = '🏦 Bank';
+    phoneLine(`💵 Saldo: $${S.cash.toLocaleString()}`, 'phH');
+    phoneLine(`⭐ REP: ${S.rep.toLocaleString()} — ${repRank(S.rep)}`);
+    phoneLine('— Riwayat terakhir —');
+    for (const ln of r3.bankLines()) phoneLine(ln);
   }
 }
 function phoneView() {
@@ -738,6 +1028,9 @@ function phoneView() {
   if (phone.app === 'misi') { const d = misiData(); return { open: true, app: 'misi', title: d.title, lines: d.lines }; }
   if (phone.app === 'pesan') return { open: true, app: 'pesan', lines: phone.messages.map((m) => `${m.from}: ${m.text}`) };
   if (phone.app === 'kontak') return { open: true, app: 'kontak', lines: kontakData() };
+  if (phone.app === 'jobs') return { open: true, app: 'jobs', lines: [...r3.jobsLines(), ...r3.exportLines()] };
+  if (phone.app === 'garage') return { open: true, app: 'garage', lines: garageLines() };
+  if (phone.app === 'bank') return { open: true, app: 'bank', lines: [`Saldo: $${S.cash.toLocaleString()}`, `REP: ${S.rep.toLocaleString()} — ${repRank(S.rep)}`, ...r3.bankLines()] };
   return { open: true, app: 'statistik', lines: statistikData() };
 }
 for (const b of phoneAppsEl.querySelectorAll('[data-app]')) b.addEventListener('click', () => showPhoneApp(b.dataset.app));
@@ -861,11 +1154,21 @@ const MAP_PLACES = [
   { x: CITY.safehouse.homeX, z: CITY.safehouse.homeZ, icon: '🏠', label: 'Safehouse' },
   { x: 160, z: -120, icon: '🏟️', label: 'Dome' },
 ];
+function fmtStanding(zone) {
+  const v = S.r3.standing[zone];
+  return `${v > 0 ? '+' : ''}${v} · ${standingBand(v)}`;
+}
 function refreshMap() {
   lastMapView = hud.drawBigMap(document.getElementById('bigMap'), {
     player: { x: player.x, z: player.z, heading: player.heading },
-    target: missions.target(),
+    target: missions.target() || r3.jobTarget() || r3.exportTarget(),
     places: MAP_PLACES,
+    standing: { ...S.r3.standing },
+    zones: [
+      { x: -40, z: -166, text: `Reputasi ${fmtStanding('downtown')}` },
+      { x: 387, z: -40, text: `Reputasi ${fmtStanding('industrial')}` },
+      { x: -380, z: 482, text: `Reputasi ${fmtStanding('hillcrest')}` },
+    ],
   });
 }
 function openMap() {
@@ -922,6 +1225,9 @@ function handleKey(code, down) {
   if (code === 'KeyQ' && !player.car) openWheel();
   const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(code);
   if (digit >= 0 && !player.car) { const id = WHEEL_SLOTS[digit]; if (id === 'bat' || weapons.state[id].owned) weapons.equip(id); }
+  if (code === 'KeyZ') { useCrewAbility('partner'); return; }
+  if (code === 'KeyX') { useCrewAbility('marco'); return; }
+  if (code === 'KeyC') { useCrewAbility('sasa'); return; }
 }
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
@@ -1005,12 +1311,13 @@ function interact() {
   if (runner.active && aStage?.type === 'talk' && !runner.active.talkDone
     && dist2d(player.x, player.z, aStage.x, aStage.z) < aStage.r + 1) { runner.startDialogue(); return; }
   if (runner.heistInteract()) return;
+  if (npcTalk) { advanceNpcTalk(); audio.blip(700); return; }
   const def = runner.nearStart();
   if (def) { if (runner.start(def)) audio.blip(740); return; }
   const SH = CITY.safehouse;
   if (!S.house && dist2d(player.x, player.z, SH.buyX, SH.buyZ) < 5.5) {
     if (curCash() >= TUNING.housePrice) {
-      setCurCash(curCash() - TUNING.housePrice);
+      money(-TUNING.housePrice, 'Beli safehouse Palm Row');
       S.house = true; applyHouseVisual(); spawnStoredCar();
       audio.cash();
       G.banner('Safehouse purchased', 'The villa on Palm Row is yours. Store cars in the garage.');
@@ -1022,7 +1329,17 @@ function interact() {
     }
     return;
   }
-  if (nearMarco()) { openShop(); return; }
+  if (nearMarco()) {
+    if (!S.r3.crew.marco && S.done.includes('drops')) { startNpcTalk('marco'); return; }
+    openShop(); return;
+  }
+  if (nearSasa()) {
+    if (!S.r3.crew.sasa && S.done.includes('heat')) { startNpcTalk('sasa'); return; }
+    hud.banner('Sasa', S.r3.crew.sasa
+      ? '"Mataku tetap di jalanan untukmu. Tekan C kalau butuh hilang."'
+      : '"Pantai ini mataku. Kamu belum kukenal — bereskan dulu urusanmu di kota."');
+    return;
+  }
   if (S.house && storedCar && !player.car && dist2d(player.x, player.z, SH.homeX, SH.homeZ) < 6) {
     G.banner(`Your ${storedCar.model.name} is in the garage`, 'Walk over and press E to drive it.');
     audio.blip(660);
@@ -1057,11 +1374,14 @@ function updatePrompt() {
   if (def) { hud.prompt(`F — start Chapter ${def.chapter}: ${def.name} (+$${def.reward.toLocaleString()})`); return; }
   const rp = activeMissions().promptText();
   if (rp) { hud.prompt(rp); return; }
+  if (npcTalk) { hud.prompt('F — lanjut bicara'); return; }
   const SH = CITY.safehouse;
   if (!S.house && dist2d(player.x, player.z, SH.buyX, SH.buyZ) < 5.5) {
     hud.prompt(curCash() >= TUNING.housePrice ? 'F — buy the safehouse ($2,500)' : `Safehouse: $2,500 — you need $${(TUNING.housePrice - curCash()).toLocaleString()} more`);
     return;
   }
+  if (nearMarco() && !S.r3.crew.marco && S.done.includes('drops')) { hud.prompt('F — bicara dengan Marco'); return; }
+  if (nearSasa()) { hud.prompt(S.r3.crew.sasa || S.done.includes('heat') ? 'F — bicara dengan Sasa' : 'Sasa — pengintai pantai'); return; }
   if (nearMarco()) { hud.prompt('F — Marco · Senjata'); return; }
   if (S.house && storedCar && dist2d(player.x, player.z, SH.homeX, SH.homeZ) < 6) {
     hud.prompt(`F — your ${storedCar.model.name} is in the garage`);
@@ -1140,6 +1460,16 @@ function updateCar(dt) {
     }
     if (ev.type === 'dead') G.banner('Engine dead', 'This one is done for. Step out with E and find another ride.');
   }
+  // round 3: stunt-ramp hop — a simple ballistic arc layered onto the mesh
+  if (carHop) {
+    carHop.vy -= 22 * dt;
+    carHop.y += carHop.vy * dt;
+    if (carHop.y <= 0) {
+      const idx = carHop.ramp;
+      carHop = null;
+      r3.landStunt(idx);
+    } else car.mesh.position.y += carHop.y;
+  }
   player.x = car.x; player.z = car.z; player.heading = car.heading;
   player.vx = Math.sin(car.heading) * car.speed;
   player.vz = Math.cos(car.heading) * car.speed;
@@ -1190,6 +1520,7 @@ function updateWorld(dt) {
   });
   weapons.update(dt, firing && !player.car);
   activeMissions().update(dt);
+  r3.update(dt);
   city.update(dt);
   // Marco idles in his alley; his marker breathes
   marcoMesh.rotation.y = Math.sin(elapsed * 0.8) * 0.35;
@@ -1226,7 +1557,7 @@ function updateWorld(dt) {
       if (wantedState === 'search' && search) {
         const dC = dist2d(player.x, player.z, search.x, search.z);
         const still = player.car ? Math.abs(player.car.speed) < 0.5 : Math.abs(player.speed) < 0.5;
-        const rate = dC > search.radius ? 1.35 : (still ? 1.55 : 0.8);   // hidden drains faster; leaving unseen also drains
+        const rate = (dC > search.radius ? 1.35 : (still ? 1.55 : 0.8)) * r3.searchFactor(zoneAt(search.x, search.z));   // hidden drains faster; district standing bends the drain ±15%
         search.timer -= dt * rate;
         if (search.timer <= 0) {
           wanted = 0; wantedState = 'clear'; search = null;
@@ -1274,6 +1605,7 @@ function updateWorld(dt) {
   if (hornTimer <= 0 && dist2d(player.x, player.z, 190, 257) < TUNING.boatHornRange) { audio.boatHorn(); hornTimer = randRange(rng, 20, 36); }
   // --- HUD
   hud.setWanted(wanted);
+  hud.setCrew(crewHudLines());
   hud.setBust(bust > 0.02 ? bust : null);
   hud.setSearch(wantedState === 'search' && search ? search.timer / search.total : null);
   hud.setArmour(S.armour > 0 ? S.armour / 100 : null);
@@ -1293,7 +1625,7 @@ function updateWorld(dt) {
   const runner = activeMissions();
   hud.drawMinimap({
     player: { x: player.x, z: player.z, heading: player.heading },
-    target: runner.target(),
+    target: runner.target() || r3.jobTarget() || r3.exportTarget(),
     rival: runner.active?.rico ? { x: runner.active.rico.x, z: runner.active.rico.z } : null,
     cops: police.cops, boats: city.cruisers.map((c) => ({ x: c.g.position.x, z: c.g.position.z })),
     houseOwned: S.house,
@@ -1369,7 +1701,7 @@ window.__game = {
       lead: currentLead, leadModel: playerMesh.userData.female ? 'female' : 'male',
       armour: S.armour, rep: S.rep, wantedState, zone: currentZone,
       search: search ? { ...search } : null,
-      house: S.house, stored: S.stored, inCar: !!player.car, mode,
+      house: S.house, stored: S.stored, garage: S.garage, inCar: !!player.car, mode,
       player: { x: player.x, z: player.z, heading: player.heading, speed: player.speed, y: player.yOff },
       car: player.car ? { model: player.car.model.id, health: player.car.health, dead: player.car.dead, speed: player.car.speed } : null,
       mission: runner.active ? { id: runner.active.def.id, stage: runner.active.stage ?? null, gate: runner.active.gate ?? null, ricoGate: runner.active.ricoGate ?? null, timer: runner.active.timer ?? null } : null,
@@ -1435,7 +1767,7 @@ window.__game = {
     phone: () => ({ open: phone.open, app: phone.app, unread: phone.unread, messages: phone.messages.map((m) => ({ from: m.from, text: m.text })) }),
     openPhone: () => openPhone(), closePhone: () => closePhone(),
     openPhoneApp: (app) => showPhoneApp(app), phoneView: () => phoneView(),
-    setDone: (ids) => { S.done = [...ids]; refreshAllMarkers(); save(); },
+    setDone: (ids) => { S.done = [...ids]; syncCrewFromDone(); refreshAllMarkers(); save(); },
     settings: () => ({ ...settings }),
     setSettings: (patch) => { Object.assign(settings, patch); applySettings(); saveSettings(); },
     audioInfo: () => ({ ready: !!audio.ctx, master: audio.master ? audio.master.gain.value : null, music: audio.music ? audio.music.gain.value : null, sfx: audio.sfx ? audio.sfx.gain.value : null }),
@@ -1448,6 +1780,36 @@ window.__game = {
     setLead: (id) => setLead(id),
     buyWeapon: (id) => buyWeapon(id), buyAmmo: (id) => buyAmmo(id), buyArmour: () => buyArmour(),
     shopMsg: () => shopMsgEl.textContent,
+    // round 3 hooks
+    r3: () => JSON.parse(JSON.stringify({
+      crew: S.r3.crew, standing: S.r3.standing, shells: S.r3.shells, stunts: S.r3.stunts,
+      exportDone: S.r3.exportDone, exportBonus: S.r3.exportBonus, garage: S.garage,
+      bankLog: S.r3.bankLog, jobOffer: S.r3.jobOffer, jobActive: S.r3.jobActive, clockOff: S.r3.clockOff,
+      cooldowns: {
+        partner: Math.max(0, crewCd.partner - elapsed),
+        marco: Math.max(0, crewCd.marco - elapsed),
+        sasa: Math.max(0, crewCd.sasa - elapsed),
+      },
+    })),
+    useAbility: (who) => useCrewAbility(who),
+    resetCrewCd: () => { crewCd.partner = 0; crewCd.marco = 0; crewCd.sasa = 0; },
+    npcTalk: () => (npcTalk ? { who: npcTalk.who, idx: npcTalk.idx } : null),
+    setStanding: (zone, v) => { S.r3.standing[zone] = v; },
+    marcoPrice: (id) => r3.marcoPrice(weaponDef(id).price),
+    searchFactor: (zone) => r3.searchFactor(zone),
+    acceptJob: () => r3.acceptJob(),
+    jobTarget: () => r3.jobTarget(),
+    exportFlag: () => (player.car ? player.car.exportModel || null : null),
+    garageDeliver: (i) => garageDeliver(i),
+    clockText: () => phoneClockText(),
+    hop: () => (carHop ? { ramp: carHop.ramp, y: carHop.y } : null),
+    spawnCarAt: (modelId, x, z, paint = 0x2e86de) => {
+      const v = new Vehicle(scene, modelById(modelId), paint, {});
+      v.driver = 'parked';
+      v.place(x, z, 0, CITY.pier);
+      extraVehicles.add(v);
+      return { x: v.x, z: v.z, model: v.model.id };
+    },
     toast: () => hud.toastEl?.textContent || '',
   },
 };
