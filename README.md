@@ -31,6 +31,16 @@ a five-star escape to the marina.
 - Cars with nitro and a 3-station synthesized radio, REP ranks from Newcomer to Harbor
   King, a save system, and wanted rules with witnesses: crime only counts when somebody
   actually sees it
+- **A crew (Z / X / C)**: your partner delivers a car to you, Marco restocks ammo and
+  repairs your ride, and Sasa the lookout burns a wanted star — recruit them in the world
+- **District standing**: each zone remembers what you do there; standing moves Marco's
+  prices and how fast a search goes cold
+- **Side jobs & collectibles**: repeatable delivery jobs in the phone's Jobs app, 20
+  golden shells, 8 stunt jumps, and a 5-car export list paying up to $1,500 a car
+- **A garage** at the safehouse (4 cars, delivered by phone) and a **Bank app** logging
+  every rupiah in and out
+- **Busted means bailed**: get caught and your partner posts bail — $200 per star, your
+  weapons stay yours, and the clock jumps 3 hours
 
 ## Controls
 
@@ -43,6 +53,7 @@ a five-star escape to the marina.
 | E | Enter / exit car |
 | F | Talk · Start mission · Marco's shop · Advance dialogue |
 | Q (hold) | Weapon wheel · 1–5 / Tab / scroll — switch weapon |
+| Z / X / C | Crew abilities — partner's car delivery · Marco's supply · Sasa's lookout |
 | R | Reload · Radio in a car |
 | T | Phone |
 | M | Full map |
